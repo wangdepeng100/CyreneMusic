@@ -5,8 +5,7 @@ import 'package:flutter/gestures.dart';
 import '../../services/player_service.dart';
 import '../../models/lyric_line.dart';
 
-/// Apple Music 风格歌词面板
-/// 参考 PoloMusic Vue 项目的歌词滚动效果
+
 /// 核心：弹性间距动画 + 波浪式延迟
 class PlayerFluidCloudLyricsPanel extends StatefulWidget {
   final List<LyricLine> lyrics;
@@ -158,7 +157,7 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     return LayoutBuilder(
       builder: (context, constraints) {
         _viewportHeight = constraints.maxHeight;
-        // 参考 Vue 项目：可视区域显示约 7 行歌词
+        // 可视区域显示约 7 行歌词
         _itemHeight = _viewportHeight / 7;
 
         return Stack(
@@ -235,7 +234,7 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     );
   }
 
-  /// 获取弹性偏移量 (参考 Vue: cubic-bezier(0.34, 1.56, 0.64, 1))
+  /// 获取弹性偏移量 
   double _getElasticOffset(int index) {
     if (_isUserScrolling) return 0.0;
     
@@ -256,7 +255,6 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     final elasticValue = const _ElasticOutCurve().transform(adjustedProgress);
     
     // 间距变化量：模拟滚动时的间距拉伸
-    // 加大系数以增强"QQ弹弹"的效果 (Vue 中是因为滚动延迟导致的间距拉大)
     // 初始时刻(progress=0)间距最大，然后弹回正常
     final spacingChange = 24.0 * (1.0 - elasticValue);
     
@@ -273,11 +271,11 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     final isSelected = _isUserScrolling && _selectedLyricIndex == index;
     final distance = (index - widget.currentLyricIndex).abs();
     
-    // ===== 视觉参数计算 (参考 Vue 项目) =====
+    // ===== 视觉参数计算 
     // 透明度：当前行 1.0，距离越远越透明
     final opacity = isActive ? 1.0 : (1.0 - distance * 0.15).clamp(0.3, 0.8);
     
-    // 模糊度：当前行清晰，距离越远越模糊 (Vue: filter: blur(2px))
+    // 模糊度：当前行清晰，距离越远越模糊 
     final blur = isActive ? 0.0 : (distance * 1.0).clamp(0.0, 2.0);
     
     // ===== 弹性偏移 =====
@@ -502,14 +500,13 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
   }
 }
 
-/// 弹性曲线 - 模拟 Vue 的 cubic-bezier(0.34, 1.56, 0.64, 1)
+/// 弹性曲线
 /// 这是一个过冲曲线，值会超过 1.0 然后回弹
 class _ElasticOutCurve extends Curve {
   const _ElasticOutCurve();
 
   @override
   double transformInternal(double t) {
-    // 模拟 cubic-bezier(0.34, 1.56, 0.64, 1)
     // 使用简化的弹性公式
     final t2 = t - 1.0;
     // 过冲系数 1.56 产生弹性效果
