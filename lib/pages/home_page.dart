@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/music_service.dart';
@@ -40,6 +41,7 @@ import 'home_page/home_overlay_controller.dart';
 import 'home_page/home_widgets.dart';
 import '../services/global_back_handler_service.dart';
 import 'home_page/toplist_detail.dart';
+import '../widgets/cupertino/cupertino_home_widgets.dart';
 
 /// 首页 - 展示音乐和视频内容
 class HomePage extends StatefulWidget {
@@ -903,6 +905,11 @@ class _HomePageState extends State<HomePage>
       return await _checkLoginStatusFluent();
     }
 
+    // Cupertino 版本的对话框
+    if ((Platform.isIOS || Platform.isAndroid) && _themeManager.isCupertinoFramework) {
+      return await _checkLoginStatusCupertino();
+    }
+
     // Material Design 版本的对话框
     final shouldLogin = await showDialog<bool>(
       context: context,
@@ -976,12 +983,56 @@ class _HomePageState extends State<HomePage>
     return false;
   }
 
+  /// Cupertino (iOS) 版本的登录状态检查
+  Future<bool> _checkLoginStatusCupertino() async {
+    final shouldLogin = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(CupertinoIcons.lock, color: CupertinoColors.systemOrange),
+            SizedBox(width: 8),
+            Text('需要登录'),
+          ],
+        ),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text('此功能需要登录后才能使用，是否前往登录？'),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: false,
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('去登录'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogin == true && mounted) {
+      // 跳转到登录页面
+      final result = await showAuthDialog(context);
+
+      // 返回登录是否成功
+      return result == true && AuthService().isLoggedIn;
+    }
+
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以支持 AutomaticKeepAliveClientMixin
     final theme = Theme.of(context);
     final bool showTabs = _isNeteaseBound; // 绑定网易云后显示 Tabs
 
+    // Windows Fluent UI
     if (_themeManager.isFluentFramework) {
       return Theme(
         data: _materialHomeThemeWithFont(theme),
@@ -994,6 +1045,12 @@ class _HomePageState extends State<HomePage>
       );
     }
 
+    // iOS/Android Cupertino
+    if ((Platform.isIOS || Platform.isAndroid) && _themeManager.isCupertinoFramework) {
+      return _buildCupertinoHome(context, showTabs);
+    }
+
+    // Material Design (default)
     return Theme(
       data: _materialHomeThemeWithFont(theme),
       child: Builder(
@@ -1016,6 +1073,271 @@ class _HomePageState extends State<HomePage>
         _buildMaterialContentArea(context, colorScheme, showTabs),
       ),
     );
+  }
+
+  /// 构建 iOS Cupertino 风格首页
+  Widget _buildCupertinoHome(BuildContext context, bool showTabs) {
+    final isDark = CupertinoTheme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark
+        ? CupertinoColors.black
+        : CupertinoColors.systemGroupedBackground;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: CupertinoPageScaffold(
+        backgroundColor: backgroundColor,
+        // 使用 RepaintBoundary 隔离滚动内容，防止底部 BackdropFilter 导致快速滚动残影
+        child: RepaintBoundary(
+          child: _buildSlidingSwitcher(
+            _buildCupertinoContentArea(context, showTabs),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建 iOS 风格内容区域
+  Widget _buildCupertinoContentArea(BuildContext context, bool showTabs) {
+    final isDark = CupertinoTheme.of(context).brightness == Brightness.dark;
+
+    if (_showSearch) {
+      return SearchWidget(
+        key: ValueKey('cupertino_search_${_initialSearchKeyword ?? ''}'),
+        onClose: () {
+          if (!mounted) return;
+          setState(() {
+            _showSearch = false;
+            _initialSearchKeyword = null;
+          });
+          _syncGlobalBackHandler();
+        },
+        initialKeyword: _initialSearchKeyword,
+      );
+    }
+
+    if (_showDailyDetail) {
+      return SafeArea(
+        child: Column(
+          children: [
+            _buildCupertinoBackHeader(context, '每日推荐', _closeDailyDetail),
+            Expanded(
+              child: DailyRecommendDetailPage(
+                tracks: _dailyTracks,
+                embedded: true,
+                onClose: _closeDailyDetail,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_showDiscoverDetail && _discoverPlaylistId != null) {
+      return SafeArea(
+        child: Column(
+          children: [
+            _buildCupertinoBackHeader(context, '歌单详情', _closeDiscoverDetail),
+            Expanded(
+              child: PrimaryScrollController.none(
+                child: DiscoverPlaylistDetailContent(
+                  playlistId: _discoverPlaylistId!,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 主页内容
+    return CustomScrollView(
+      key: const ValueKey('cupertino_home_overview'),
+      slivers: _buildCupertinoHomeSlivers(context, showTabs),
+    );
+  }
+
+  /// 构建 Cupertino 风格的返回头部
+  Widget _buildCupertinoBackHeader(
+      BuildContext context, String title, VoidCallback onBack) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: onBack,
+            child: Row(
+              children: [
+                Icon(
+                  CupertinoIcons.back,
+                  color: ThemeManager.iosBlue,
+                  size: 22,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '返回',
+                  style: TextStyle(
+                    color: ThemeManager.iosBlue,
+                    fontSize: 17,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // 占位，保持标题居中
+          const SizedBox(width: 70),
+        ],
+      ),
+    );
+  }
+
+  /// 构建 iOS 风格首页 Slivers
+  List<Widget> _buildCupertinoHomeSlivers(BuildContext context, bool showTabs) {
+    final isDark = CupertinoTheme.of(context).brightness == Brightness.dark;
+    
+    return [
+      // iOS 大标题导航栏
+      // 注意：移除 opacity 以避免与 BackdropFilter 组合导致快速滚动残影
+      CupertinoSliverNavigationBar(
+        largeTitle: const Text('首页'),
+        backgroundColor: isDark
+            ? const Color(0xFF1C1C1E)
+            : CupertinoColors.systemBackground,
+        border: null,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _handleSearchPressed(context),
+              child: Icon(
+                CupertinoIcons.search,
+                color: ThemeManager.iosBlue,
+              ),
+            ),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _handleRefreshPressed(context),
+              child: Icon(
+                CupertinoIcons.refresh,
+                color: ThemeManager.iosBlue,
+              ),
+            ),
+          ],
+        ),
+      ),
+      // 固定的分段控制器（滚动时吸顶）
+      if (showTabs)
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: CupertinoHomeStickyHeaderDelegate(
+            tabs: const ['为你推荐', '榜单'],
+            currentIndex: _homeTabIndex,
+            onChanged: (i) => setState(() => _homeTabIndex = i),
+          ),
+        ),
+      // 内容
+      SliverPadding(
+        padding: const EdgeInsets.all(16.0),
+        sliver: SliverList(
+          delegate: SliverChildListDelegate([
+            // 内容
+            if (showTabs && _homeTabIndex == 0) ...[
+              HomeForYouTab(
+                key: ValueKey('for_you_$_forYouReloadToken'),
+                onOpenPlaylistDetail: (id) {
+                  setState(() {
+                    _homeTabIndex = 0;
+                    _discoverPlaylistId = id;
+                    _showDiscoverDetail = true;
+                  });
+                  _syncGlobalBackHandler();
+                },
+                onOpenDailyDetail: (tracks) {
+                  setState(() {
+                    _homeTabIndex = 0;
+                    _dailyTracks = tracks;
+                    _showDailyDetail = true;
+                  });
+                  _syncGlobalBackHandler();
+                },
+              ),
+            ] else ...[
+              if (MusicService().isLoading)
+                const CupertinoLoadingSection()
+              else if (MusicService().errorMessage != null)
+                const CupertinoErrorSection()
+              else if (MusicService().toplists.isEmpty)
+                const CupertinoEmptySection()
+              else ...[
+                CupertinoBannerSection(
+                  cachedRandomTracks: _cachedRandomTracks,
+                  bannerController: _bannerController,
+                  currentBannerIndex: _currentBannerIndex,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _currentBannerIndex = index;
+                    });
+                    _restartBannerTimer();
+                  },
+                  checkLoginStatus: _checkLoginStatus,
+                ),
+                const SizedBox(height: 24),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final useVerticalLayout =
+                        constraints.maxWidth < 600 || Platform.isAndroid || Platform.isIOS;
+
+                    if (useVerticalLayout) {
+                      return Column(
+                        children: [
+                          const CupertinoHistorySection(),
+                          const SizedBox(height: 16),
+                          CupertinoGuessYouLikeSection(
+                            guessYouLikeFuture: _guessYouLikeFuture,
+                          ),
+                        ],
+                      );
+                    } else {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Expanded(child: CupertinoHistorySection()),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: CupertinoGuessYouLikeSection(
+                              guessYouLikeFuture: _guessYouLikeFuture,
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 24),
+                CupertinoToplistsGrid(
+                  checkLoginStatus: _checkLoginStatus,
+                  showToplistDetail: (toplist) =>
+                      showToplistDetail(context, toplist),
+                ),
+              ],
+            ],
+            // 底部安全区域
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 100),
+          ]),
+        ),
+      ),
+    ];
   }
 
   Future<void> _handleSearchPressed(BuildContext context) async {

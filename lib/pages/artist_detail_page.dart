@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'dart:io';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import '../utils/theme_manager.dart';
@@ -21,6 +22,8 @@ class _ArtistDetailPageState extends State<ArtistDetailPage> {
   Map<String, dynamic>? _data;
   bool _loading = true;
   String? _error;
+
+  bool get _isCupertino => ThemeManager().isCupertinoFramework;
 
   @override
   void initState() {
@@ -69,6 +72,23 @@ class _ArtistDetailPageState extends State<ArtistDetailPage> {
       );
     }
 
+    // iOS Cupertino 风格
+    if (_isCupertino) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      return CupertinoPageScaffold(
+        backgroundColor: isDark 
+            ? const Color(0xFF000000) 
+            : CupertinoColors.systemGroupedBackground,
+        navigationBar: CupertinoNavigationBar(
+          middle: const Text('歌手详情'),
+          backgroundColor: isDark 
+              ? const Color(0xFF1C1C1E).withOpacity(0.9) 
+              : CupertinoColors.white.withOpacity(0.9),
+        ),
+        child: ArtistDetailContent(artistId: widget.artistId),
+      );
+    }
+
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
@@ -95,6 +115,32 @@ class _CapsuleTabs extends StatelessWidget {
 
     final fluentTheme = fluent.FluentTheme.maybeOf(context);
     final isFluent = fluentTheme != null;
+    final isCupertino = ThemeManager().isCupertinoFramework;
+
+    // iOS Cupertino 风格：使用分段控件
+    if (isCupertino) {
+      return SizedBox(
+        width: double.infinity,
+        child: CupertinoSlidingSegmentedControl<int>(
+          groupValue: currentIndex,
+          children: {
+            for (int i = 0; i < tabs.length; i++)
+              i: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  tabs[i],
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+          },
+          onValueChanged: (value) {
+            if (value != null) {
+              onChanged(value);
+            }
+          },
+        ),
+      );
+    }
 
     final cs = Theme.of(context).colorScheme;
     final bg = isFluent
@@ -202,6 +248,8 @@ class _CapsuleTabs extends StatelessWidget {
 
 Widget _buildAdaptiveCard({
   required bool isFluent,
+  required bool isCupertino,
+  required bool isDark,
   EdgeInsetsGeometry? margin,
   EdgeInsetsGeometry? padding,
   required Widget child,
@@ -215,6 +263,19 @@ Widget _buildAdaptiveCard({
       ),
     );
   }
+  if (isCupertino) {
+    return Padding(
+      padding: margin ?? EdgeInsets.zero,
+      child: Container(
+        padding: padding ?? EdgeInsets.zero,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: child,
+      ),
+    );
+  }
   return Card(
     margin: margin,
     child: padding != null ? Padding(padding: padding, child: child) : child,
@@ -223,6 +284,8 @@ Widget _buildAdaptiveCard({
 
 Widget _buildAdaptiveListTile({
   required bool isFluent,
+  required bool isCupertino,
+  required bool isDark,
   Widget? leading,
   Widget? title,
   Widget? subtitle,
@@ -238,6 +301,50 @@ Widget _buildAdaptiveListTile({
       onPressed: onPressed,
     );
   }
+  if (isCupertino) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            if (leading != null) ...[
+              leading,
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (title != null)
+                    DefaultTextStyle(
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                      ),
+                      child: title,
+                    ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    DefaultTextStyle(
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                      child: subtitle,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
+      ),
+    );
+  }
   return ListTile(
     leading: leading,
     title: title,
@@ -247,26 +354,76 @@ Widget _buildAdaptiveListTile({
   );
 }
 
-Widget _buildAdaptiveProgressIndicator(bool isFluent) {
-  return isFluent
-      ? const fluent.ProgressRing()
-      : const CircularProgressIndicator();
+Widget _buildAdaptiveProgressIndicator(bool isFluent, bool isCupertino) {
+  if (isFluent) {
+    return const fluent.ProgressRing();
+  }
+  if (isCupertino) {
+    return const CupertinoActivityIndicator(radius: 14);
+  }
+  return const CircularProgressIndicator();
 }
 
 class _SongsListView extends StatelessWidget {
   final List<dynamic> songs;
   final bool isFluent;
-  const _SongsListView({super.key, required this.songs, required this.isFluent});
+  final bool isCupertino;
+  final bool isDark;
+  const _SongsListView({
+    super.key, 
+    required this.songs, 
+    required this.isFluent,
+    required this.isCupertino,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (songs.isEmpty) {
       return Center(
-        child: Text('暂无歌曲', style: Theme.of(context).textTheme.bodySmall),
+        child: Text(
+          '暂无歌曲', 
+          style: isCupertino
+              ? TextStyle(color: CupertinoColors.systemGrey)
+              : Theme.of(context).textTheme.bodySmall,
+        ),
       );
     }
+    
+    // iOS Cupertino 风格：使用圆角卡片容器
+    if (isCupertino) {
+      final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
+      return ListView(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: bottomPadding),
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < songs.length; i++) ...[
+                  _buildCupertinoSongTile(context, songs[i] as Map<String, dynamic>),
+                  if (i < songs.length - 1)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 78),
+                      child: Container(
+                        height: 0.5,
+                        color: CupertinoColors.systemGrey.withOpacity(0.3),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    
+    final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.only(left: 16, right: 16, bottom: bottomPadding),
       itemCount: songs.length,
       itemBuilder: (context, index) {
         final m = songs[index] as Map<String, dynamic>;
@@ -284,10 +441,14 @@ class _SongsListView extends StatelessWidget {
 
         return _buildAdaptiveCard(
           isFluent: isFluent,
+          isCupertino: isCupertino,
+          isDark: isDark,
           margin: const EdgeInsets.only(bottom: 8),
           padding: EdgeInsets.zero,
           child: _buildAdaptiveListTile(
             isFluent: isFluent,
+            isCupertino: isCupertino,
+            isDark: isDark,
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: CachedNetworkImage(
@@ -306,23 +467,144 @@ class _SongsListView extends StatelessWidget {
       },
     );
   }
+  
+  Widget _buildCupertinoSongTile(BuildContext context, Map<String, dynamic> m) {
+    final track = Track(
+      id: m['id'],
+      name: m['name']?.toString() ?? '',
+      artists: m['artists']?.toString() ?? '',
+      album: m['album']?.toString() ?? '',
+      picUrl: m['picUrl']?.toString() ?? '',
+      source: MusicSource.netease,
+    );
+    
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: () => PlayerService().playTrack(track),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: CachedNetworkImage(
+                imageUrl: track.picUrl,
+                width: 50,
+                height: 50,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  width: 50,
+                  height: 50,
+                  color: isDark 
+                      ? const Color(0xFF2C2C2E) 
+                      : CupertinoColors.systemGrey5,
+                  child: const Center(
+                    child: CupertinoActivityIndicator(radius: 10),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${track.artists} • ${track.album}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              CupertinoIcons.play_fill,
+              color: CupertinoColors.activeBlue,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _AlbumsListView extends StatelessWidget {
   final List<dynamic> albums;
   final void Function(int albumId)? onOpenAlbum;
   final bool isFluent;
-  const _AlbumsListView({super.key, required this.albums, this.onOpenAlbum, required this.isFluent});
+  final bool isCupertino;
+  final bool isDark;
+  const _AlbumsListView({
+    super.key, 
+    required this.albums, 
+    this.onOpenAlbum, 
+    required this.isFluent,
+    required this.isCupertino,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (albums.isEmpty) {
       return Center(
-        child: Text('暂无专辑', style: Theme.of(context).textTheme.bodySmall),
+        child: Text(
+          '暂无专辑', 
+          style: isCupertino
+              ? TextStyle(color: CupertinoColors.systemGrey)
+              : Theme.of(context).textTheme.bodySmall,
+        ),
       );
     }
+    
+    // iOS Cupertino 风格
+    if (isCupertino) {
+      final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
+      return ListView(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: bottomPadding),
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < albums.length; i++) ...[
+                  _buildCupertinoAlbumTile(context, albums[i] as Map<String, dynamic>),
+                  if (i < albums.length - 1)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 84),
+                      child: Container(
+                        height: 0.5,
+                        color: CupertinoColors.systemGrey.withOpacity(0.3),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    
+    final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.only(left: 16, right: 16, bottom: bottomPadding),
       itemCount: albums.length,
       itemBuilder: (context, index) {
         final a = albums[index] as Map<String, dynamic>;
@@ -332,10 +614,14 @@ class _AlbumsListView extends StatelessWidget {
             : const Icon(Icons.chevron_right);
         return _buildAdaptiveCard(
           isFluent: isFluent,
+          isCupertino: isCupertino,
+          isDark: isDark,
           margin: const EdgeInsets.only(bottom: 8),
           padding: EdgeInsets.zero,
           child: _buildAdaptiveListTile(
             isFluent: isFluent,
+            isCupertino: isCupertino,
+            isDark: isDark,
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: CachedNetworkImage(imageUrl: cover, width: 56, height: 56, fit: BoxFit.cover),
@@ -362,22 +648,118 @@ class _AlbumsListView extends StatelessWidget {
       },
     );
   }
+  
+  Widget _buildCupertinoAlbumTile(BuildContext context, Map<String, dynamic> a) {
+    final cover = (a['coverImgUrl'] ?? '') as String;
+    final name = a['name']?.toString() ?? '';
+    final company = (a['company']?.toString() ?? '').isEmpty ? '' : a['company'].toString();
+    
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: () {
+        final id = (a['id'] as num?)?.toInt();
+        if (id != null) {
+          if (onOpenAlbum != null) {
+            onOpenAlbum!(id);
+          } else {
+            Navigator.of(context).push(
+              CupertinoPageRoute(builder: (_) => AlbumDetailPage(albumId: id)),
+            );
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: CachedNetworkImage(
+                imageUrl: cover,
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  width: 56,
+                  height: 56,
+                  color: isDark 
+                      ? const Color(0xFF2C2C2E) 
+                      : CupertinoColors.systemGrey5,
+                  child: const Center(
+                    child: CupertinoActivityIndicator(radius: 10),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                    ),
+                  ),
+                  if (company.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      company,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              color: CupertinoColors.systemGrey,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SongsThumbView extends StatelessWidget {
   final List<dynamic> songs;
   final bool isFluent;
-  const _SongsThumbView({super.key, required this.songs, required this.isFluent});
+  final bool isCupertino;
+  final bool isDark;
+  const _SongsThumbView({
+    super.key, 
+    required this.songs, 
+    required this.isFluent,
+    required this.isCupertino,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (songs.isEmpty) {
       return Center(
-        child: Text('暂无歌曲', style: Theme.of(context).textTheme.bodySmall),
+        child: Text(
+          '暂无歌曲', 
+          style: isCupertino
+              ? TextStyle(color: CupertinoColors.systemGrey)
+              : Theme.of(context).textTheme.bodySmall,
+        ),
       );
     }
+    final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: bottomPadding),
       child: Wrap(
         spacing: 12,
         runSpacing: 12,
@@ -388,9 +770,13 @@ class _SongsThumbView extends StatelessWidget {
           final album = m['album']?.toString() ?? '';
           final pic = m['picUrl']?.toString() ?? '';
           final track = Track(id: m['id'], name: name, artists: artists, album: album, picUrl: pic, source: MusicSource.netease);
+          
           final trailing = isFluent
               ? const fluent.Icon(fluent.FluentIcons.play)
-              : const Icon(Icons.play_arrow);
+              : isCupertino
+                  ? Icon(CupertinoIcons.play_fill, color: CupertinoColors.activeBlue, size: 20)
+                  : const Icon(Icons.play_arrow);
+          
           final cardContent = Row(
             children: [
               ClipRRect(
@@ -402,11 +788,35 @@ class _SongsThumbView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                      name, 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis, 
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isCupertino 
+                            ? (isDark ? CupertinoColors.white : CupertinoColors.black) 
+                            : null,
+                      ),
+                    ),
                     const SizedBox(height: 6),
-                    Text(artists, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      artists, 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis, 
+                      style: isCupertino 
+                          ? TextStyle(fontSize: 13, color: CupertinoColors.systemGrey)
+                          : Theme.of(context).textTheme.bodySmall,
+                    ),
                     const SizedBox(height: 6),
-                    Text(album, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      album, 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis, 
+                      style: isCupertino 
+                          ? TextStyle(fontSize: 13, color: CupertinoColors.systemGrey)
+                          : Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                 ),
               ),
@@ -416,6 +826,8 @@ class _SongsThumbView extends StatelessWidget {
           );
           final card = _buildAdaptiveCard(
             isFluent: isFluent,
+            isCupertino: isCupertino,
+            isDark: isDark,
             padding: const EdgeInsets.all(10),
             child: cardContent,
           );
@@ -428,11 +840,17 @@ class _SongsThumbView extends StatelessWidget {
                     onTap: tapHandler,
                     child: card,
                   )
-                : InkWell(
-                    onTap: tapHandler,
-                    borderRadius: BorderRadius.circular(12),
-                    child: card,
-                  ),
+                : isCupertino
+                    ? CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: tapHandler,
+                        child: card,
+                      )
+                    : InkWell(
+                        onTap: tapHandler,
+                        borderRadius: BorderRadius.circular(12),
+                        child: card,
+                      ),
           );
         }).toList(),
       ),
@@ -444,17 +862,32 @@ class _AlbumsThumbView extends StatelessWidget {
   final List<dynamic> albums;
   final void Function(int albumId)? onOpenAlbum;
   final bool isFluent;
-  const _AlbumsThumbView({super.key, required this.albums, this.onOpenAlbum, required this.isFluent});
+  final bool isCupertino;
+  final bool isDark;
+  const _AlbumsThumbView({
+    super.key, 
+    required this.albums, 
+    this.onOpenAlbum, 
+    required this.isFluent,
+    required this.isCupertino,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (albums.isEmpty) {
       return Center(
-        child: Text('暂无专辑', style: Theme.of(context).textTheme.bodySmall),
+        child: Text(
+          '暂无专辑', 
+          style: isCupertino
+              ? TextStyle(color: CupertinoColors.systemGrey)
+              : Theme.of(context).textTheme.bodySmall,
+        ),
       );
     }
+    final bottomPadding = MediaQuery.of(context).padding.bottom + 100;
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: bottomPadding),
       child: Wrap(
         spacing: 12,
         runSpacing: 12,
@@ -464,9 +897,13 @@ class _AlbumsThumbView extends StatelessWidget {
           final cover = (a['coverImgUrl'] ?? '') as String;
           final name = (a['name'] ?? '').toString();
           final sub = (a['company'] ?? '').toString();
+          
           final trailing = isFluent
               ? const fluent.Icon(fluent.FluentIcons.chevron_right_small)
-              : const Icon(Icons.chevron_right);
+              : isCupertino
+                  ? Icon(CupertinoIcons.chevron_forward, color: CupertinoColors.systemGrey, size: 18)
+                  : const Icon(Icons.chevron_right);
+          
           final cardContent = Row(
             children: [
               ClipRRect(
@@ -478,9 +915,26 @@ class _AlbumsThumbView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                      name, 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis, 
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isCupertino 
+                            ? (isDark ? CupertinoColors.white : CupertinoColors.black)
+                            : null,
+                      ),
+                    ),
                     const SizedBox(height: 6),
-                    Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      sub, 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis, 
+                      style: isCupertino
+                          ? TextStyle(fontSize: 13, color: CupertinoColors.systemGrey)
+                          : Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                 ),
               ),
@@ -490,6 +944,8 @@ class _AlbumsThumbView extends StatelessWidget {
           );
           final card = _buildAdaptiveCard(
             isFluent: isFluent,
+            isCupertino: isCupertino,
+            isDark: isDark,
             padding: const EdgeInsets.all(10),
             child: cardContent,
           );
@@ -501,7 +957,9 @@ class _AlbumsThumbView extends StatelessWidget {
                 Navigator.of(context).push(
                   isFluent
                       ? fluent.FluentPageRoute(builder: (_) => AlbumDetailPage(albumId: id))
-                      : MaterialPageRoute(builder: (_) => AlbumDetailPage(albumId: id)),
+                      : isCupertino
+                          ? CupertinoPageRoute(builder: (_) => AlbumDetailPage(albumId: id))
+                          : MaterialPageRoute(builder: (_) => AlbumDetailPage(albumId: id)),
                 );
               }
             }
@@ -511,11 +969,17 @@ class _AlbumsThumbView extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 260, maxWidth: 440),
             child: isFluent
                 ? GestureDetector(onTap: handleTap, child: card)
-                : InkWell(
-                    onTap: handleTap,
-                    borderRadius: BorderRadius.circular(12),
-                    child: card,
-                  ),
+                : isCupertino
+                    ? CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: handleTap,
+                        child: card,
+                      )
+                    : InkWell(
+                        onTap: handleTap,
+                        borderRadius: BorderRadius.circular(12),
+                        child: card,
+                      ),
           );
         }).toList(),
       ),
@@ -562,14 +1026,28 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
   @override
   Widget build(BuildContext context) {
     final isFluent = fluent.FluentTheme.maybeOf(context) != null;
+    final isCupertino = ThemeManager().isCupertinoFramework;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     if (_loading) {
-      return Center(child: _buildAdaptiveProgressIndicator(isFluent));
+      return Center(child: _buildAdaptiveProgressIndicator(isFluent, isCupertino));
     }
-    if (_error != null) return Center(child: Text(_error!));
+    if (_error != null) {
+      return Center(
+        child: Text(
+          _error!,
+          style: isCupertino 
+              ? TextStyle(color: CupertinoColors.systemGrey) 
+              : null,
+        ),
+      );
+    }
+    
     final artist = _data!['artist'] as Map<String, dynamic>? ?? {};
     final albums = (_data!['albums'] as List<dynamic>? ?? []) as List<dynamic>;
     final songs = (_data!['songs'] as List<dynamic>? ?? []) as List<dynamic>;
     final imageUrl = (artist['img1v1Url'] ?? artist['picUrl'] ?? '') as String;
+    
     Widget avatar;
     if (isFluent) {
       avatar = fluent.CircleAvatar(
@@ -579,6 +1057,21 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
             ? const fluent.Icon(fluent.FluentIcons.contact)
             : null,
       );
+    } else if (isCupertino) {
+      avatar = Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+          image: imageUrl.isNotEmpty 
+              ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+              : null,
+        ),
+        child: imageUrl.isEmpty 
+            ? Icon(CupertinoIcons.person_fill, size: 36, color: CupertinoColors.systemGrey)
+            : null,
+      );
     } else {
       avatar = CircleAvatar(
         radius: 36,
@@ -586,6 +1079,7 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
         child: imageUrl.isEmpty ? const Icon(Icons.person) : null,
       );
     }
+    
     final headerContent = Row(
       children: [
         avatar,
@@ -594,9 +1088,25 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(artist['name']?.toString() ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+              Text(
+                artist['name']?.toString() ?? '', 
+                style: TextStyle(
+                  fontSize: 20, 
+                  fontWeight: FontWeight.w600,
+                  color: isCupertino 
+                      ? (isDark ? CupertinoColors.white : CupertinoColors.black)
+                      : null,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(artist['briefDesc']?.toString() ?? artist['description']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(
+                artist['briefDesc']?.toString() ?? artist['description']?.toString() ?? '', 
+                maxLines: 2, 
+                overflow: TextOverflow.ellipsis,
+                style: isCupertino
+                    ? TextStyle(fontSize: 14, color: CupertinoColors.systemGrey)
+                    : null,
+              ),
             ],
           ),
         ),
@@ -608,23 +1118,22 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
         // 顶部信息
         Padding(
           padding: const EdgeInsets.all(16.0),
-          child: isFluent
+          child: (isFluent || isCupertino)
               ? _buildAdaptiveCard(
-                  isFluent: true,
+                  isFluent: isFluent,
+                  isCupertino: isCupertino,
+                  isDark: isDark,
                   padding: const EdgeInsets.all(16),
                   child: headerContent,
                 )
               : headerContent,
         ),
 
-        // 胶囊 Tabs
+        // 胶囊 Tabs / iOS 分段控件
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: _CapsuleTabs(
-            tabs: [
-              '歌曲',
-              '专辑',
-            ],
+            tabs: const ['歌曲', '专辑'],
             currentIndex: _tabIndex,
             onChanged: (i) => setState(() => _tabIndex = i),
           ),
@@ -635,7 +1144,7 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
         // 视图模式切换（列表/缩略图）
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: _buildViewModeToggle(context, isFluent),
+          child: _buildViewModeToggle(context, isFluent, isCupertino, isDark),
         ),
 
         // 内容列表
@@ -656,20 +1165,36 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
             },
             child: _tabIndex == 0
                 ? (_useGrid
-                    ? _SongsThumbView(key: const ValueKey('artist_songs_grid'), songs: songs, isFluent: isFluent)
-                    : _SongsListView(key: const ValueKey('artist_songs_list'), songs: songs, isFluent: isFluent))
+                    ? _SongsThumbView(
+                        key: const ValueKey('artist_songs_grid'), 
+                        songs: songs, 
+                        isFluent: isFluent,
+                        isCupertino: isCupertino,
+                        isDark: isDark,
+                      )
+                    : _SongsListView(
+                        key: const ValueKey('artist_songs_list'), 
+                        songs: songs, 
+                        isFluent: isFluent,
+                        isCupertino: isCupertino,
+                        isDark: isDark,
+                      ))
                 : (_useGrid
                     ? _AlbumsThumbView(
                         key: const ValueKey('artist_albums_grid'),
                         albums: albums,
                         onOpenAlbum: widget.onOpenAlbum,
                         isFluent: isFluent,
+                        isCupertino: isCupertino,
+                        isDark: isDark,
                       )
                     : _AlbumsListView(
                         key: const ValueKey('artist_albums_list'),
                         albums: albums,
                         onOpenAlbum: widget.onOpenAlbum,
                         isFluent: isFluent,
+                        isCupertino: isCupertino,
+                        isDark: isDark,
                       )),
           ),
         ),
@@ -677,7 +1202,7 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
     );
   }
 
-  Widget _buildViewModeToggle(BuildContext context, bool isFluent) {
+  Widget _buildViewModeToggle(BuildContext context, bool isFluent, bool isCupertino, bool isDark) {
     if (isFluent) {
       final fluentTheme = fluent.FluentTheme.of(context);
       final iconColor = fluentTheme.resources?.textFillColorSecondary ?? Colors.grey;
@@ -698,6 +1223,29 @@ class _ArtistDetailContentState extends State<ArtistDetailContent> {
           Icon(Icons.grid_view, size: 18, color: iconColor),
           const Spacer(),
           Text(_useGrid ? '缩略图' : '列表', style: labelStyle),
+        ],
+      );
+    }
+    
+    if (isCupertino) {
+      return Row(
+        children: [
+          Icon(CupertinoIcons.list_bullet, size: 18, color: CupertinoColors.systemGrey),
+          const SizedBox(width: 8),
+          CupertinoSwitch(
+            value: _useGrid,
+            onChanged: (v) => setState(() => _useGrid = v),
+          ),
+          const SizedBox(width: 8),
+          Icon(CupertinoIcons.square_grid_2x2, size: 18, color: CupertinoColors.systemGrey),
+          const Spacer(),
+          Text(
+            _useGrid ? '缩略图' : '列表', 
+            style: TextStyle(
+              fontSize: 13, 
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
         ],
       );
     }

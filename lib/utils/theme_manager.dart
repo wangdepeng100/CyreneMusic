@@ -61,7 +61,7 @@ class ThemeManager extends ChangeNotifier {
   bool _followSystemColor = true; // 默认跟随系统主题色
   Color? _systemColor; // 系统主题色缓存
   ThemeFramework _themeFramework = ThemeFramework.material; // 默认使用 Material 3
-  MobileThemeFramework _mobileThemeFramework = MobileThemeFramework.material; // 移动端默认使用 Material
+  MobileThemeFramework _mobileThemeFramework = MobileThemeFramework.cupertino; // 移动端默认使用 iOS 风格
   WindowEffect _windowEffect = WindowEffect.disabled; // 窗口材质效果
   bool _isApplyingWindowEffect = false; // 防止并发应用导致插件内部状态错误
   bool _isWindows11OrLater = false; // 是否为 Windows 11 或更高版本
@@ -394,12 +394,12 @@ class ThemeManager extends ChangeNotifier {
         _themeFramework = Platform.isWindows ? ThemeFramework.fluent : ThemeFramework.material;
       }
 
-      // 加载移动端主题框架（默认为 Material）
+      // 加载移动端主题框架（默认为 Cupertino iOS 风格）
       final savedMobileFrameworkIndex = prefs.getInt('mobile_theme_framework');
       if (savedMobileFrameworkIndex != null && savedMobileFrameworkIndex >= 0 && savedMobileFrameworkIndex < MobileThemeFramework.values.length) {
         _mobileThemeFramework = MobileThemeFramework.values[savedMobileFrameworkIndex];
       } else {
-        _mobileThemeFramework = MobileThemeFramework.material;
+        _mobileThemeFramework = MobileThemeFramework.cupertino;
       }
 
       // 检测 Windows 版本

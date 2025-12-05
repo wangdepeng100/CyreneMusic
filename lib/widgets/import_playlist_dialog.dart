@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:http/http.dart' as http;
 import '../services/url_service.dart';
@@ -247,7 +248,13 @@ class ImportPlaylistDialog {
     // 网易云导入方式: 'account' 从账号导入, 'url' 从URL/ID导入
     String neteaseImportMode = 'account';
     Map<String, dynamic>? result;
-    if (ThemeManager().isFluentFramework) {
+    
+    // Cupertino 风格
+    if (ThemeManager().isCupertinoFramework) {
+      result = await _showCupertinoImportDialogImpl(context, controller, selectedPlatform, neteaseImportMode);
+    }
+    // Fluent 风格
+    else if (ThemeManager().isFluentFramework) {
       String? errorText;
       result = await fluent.showDialog<Map<String, dynamic>>(
         context: context,
@@ -626,7 +633,21 @@ class ImportPlaylistDialog {
     final isBound = await kugouService.isKugouBound();
     if (!isBound) {
       if (!context.mounted) return;
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        await showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('未绑定酷狗账号'),
+            content: const Text('请先在「设置 → 第三方账号」中绑定酷狗账号后再导入歌单。'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else if (ThemeManager().isFluentFramework) {
         await fluent.showDialog(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -661,7 +682,15 @@ class ImportPlaylistDialog {
     if (!context.mounted) return;
 
     // 显示加载中
-    if (ThemeManager().isFluentFramework) {
+    if (ThemeManager().isCupertinoFramework) {
+      showCupertinoDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CupertinoActivityIndicator(radius: 16),
+        ),
+      );
+    } else if (ThemeManager().isFluentFramework) {
       fluent.showDialog(
         context: context,
         barrierDismissible: false,
@@ -707,7 +736,21 @@ class ImportPlaylistDialog {
       Navigator.pop(context); // 关闭加载对话框
 
       if (playlists.isEmpty) {
-        if (ThemeManager().isFluentFramework) {
+        if (ThemeManager().isCupertinoFramework) {
+          await showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('暂无歌单'),
+              content: const Text('您的酷狗账号中暂无歌单。'),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+        } else if (ThemeManager().isFluentFramework) {
           await fluent.showDialog(
             context: context,
             builder: (context) => fluent.ContentDialog(
@@ -741,7 +784,136 @@ class ImportPlaylistDialog {
 
       // 显示歌单选择对话框
       KugouPlaylistInfo? selectedPlaylist;
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        selectedPlaylist = await showCupertinoModalPopup<KugouPlaylistInfo>(
+          context: context,
+          builder: (context) {
+            final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+            return Material(
+              type: MaterialType.transparency,
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.7,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.systemBackground,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      // 顶部拖动条
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey3,
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                      // 标题栏
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('取消'),
+                            ),
+                            Text(
+                              '选择酷狗歌单',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                              ),
+                            ),
+                            const SizedBox(width: 60), // 占位，保持标题居中
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      // 歌单列表
+                      Expanded(
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: playlists.length,
+                          itemBuilder: (context, index) {
+                            final playlist = playlists[index];
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => Navigator.pop(context, playlist),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: playlist.pic.isNotEmpty
+                                            ? Image.network(
+                                                playlist.pic,
+                                                width: 50,
+                                                height: 50,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  width: 50,
+                                                  height: 50,
+                                                  color: CupertinoColors.systemGrey5,
+                                                  child: const Icon(Icons.music_note, color: CupertinoColors.systemGrey),
+                                                ),
+                                              )
+                                            : Container(
+                                                width: 50,
+                                                height: 50,
+                                                color: CupertinoColors.systemGrey5,
+                                                child: const Icon(Icons.music_note, color: CupertinoColors.systemGrey),
+                                              ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              playlist.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${playlist.count} 首歌曲',
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                color: CupertinoColors.systemGrey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(CupertinoIcons.chevron_right, color: CupertinoColors.systemGrey3, size: 20),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      } else if (ThemeManager().isFluentFramework) {
         selectedPlaylist = await fluent.showDialog<KugouPlaylistInfo>(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -857,7 +1029,21 @@ class ImportPlaylistDialog {
       if (!context.mounted) return;
       Navigator.pop(context); // 关闭加载对话框
 
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        await showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('获取歌单失败'),
+            content: Text('$e'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else if (ThemeManager().isFluentFramework) {
         await fluent.showDialog(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -897,7 +1083,21 @@ class ImportPlaylistDialog {
     final isBound = await neteaseService.isNeteaseBound();
     if (!isBound) {
       if (!context.mounted) return;
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        await showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('未绑定网易云账号'),
+            content: const Text('请先在「设置 → 第三方账号」中绑定网易云账号后再导入歌单。'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else if (ThemeManager().isFluentFramework) {
         await fluent.showDialog(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -932,7 +1132,15 @@ class ImportPlaylistDialog {
     if (!context.mounted) return;
 
     // 显示加载中
-    if (ThemeManager().isFluentFramework) {
+    if (ThemeManager().isCupertinoFramework) {
+      showCupertinoDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CupertinoActivityIndicator(radius: 16),
+        ),
+      );
+    } else if (ThemeManager().isFluentFramework) {
       fluent.showDialog(
         context: context,
         barrierDismissible: false,
@@ -978,7 +1186,21 @@ class ImportPlaylistDialog {
       Navigator.pop(context); // 关闭加载对话框
 
       if (playlists.isEmpty) {
-        if (ThemeManager().isFluentFramework) {
+        if (ThemeManager().isCupertinoFramework) {
+          await showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('暂无歌单'),
+              content: const Text('您的网易云账号中暂无歌单。'),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+        } else if (ThemeManager().isFluentFramework) {
           await fluent.showDialog(
             context: context,
             builder: (context) => fluent.ContentDialog(
@@ -1012,7 +1234,158 @@ class ImportPlaylistDialog {
 
       // 显示歌单选择对话框
       NeteasePlaylistInfo? selectedPlaylist;
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        selectedPlaylist = await showCupertinoModalPopup<NeteasePlaylistInfo>(
+          context: context,
+          builder: (context) {
+            final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+            return Material(
+              type: MaterialType.transparency,
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.7,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.systemBackground,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      // 顶部拖动条
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey3,
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                      // 标题栏
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('取消'),
+                            ),
+                            Text(
+                              '选择网易云歌单',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                              ),
+                            ),
+                            const SizedBox(width: 60), // 占位
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      // 歌单列表
+                      Expanded(
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: playlists.length,
+                          itemBuilder: (context, index) {
+                            final playlist = playlists[index];
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => Navigator.pop(context, playlist),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: playlist.coverImgUrl.isNotEmpty
+                                            ? Image.network(
+                                                playlist.coverImgUrl,
+                                                width: 50,
+                                                height: 50,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  width: 50,
+                                                  height: 50,
+                                                  color: CupertinoColors.systemGrey5,
+                                                  child: const Icon(Icons.music_note, color: CupertinoColors.systemGrey),
+                                                ),
+                                              )
+                                            : Container(
+                                                width: 50,
+                                                height: 50,
+                                                color: CupertinoColors.systemGrey5,
+                                                child: const Icon(Icons.music_note, color: CupertinoColors.systemGrey),
+                                              ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              playlist.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  '${playlist.trackCount} 首歌曲',
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    color: CupertinoColors.systemGrey,
+                                                  ),
+                                                ),
+                                                if (playlist.subscribed) ...[
+                                                  const SizedBox(width: 8),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: CupertinoColors.systemOrange.withOpacity(0.1),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: CupertinoColors.systemOrange.withOpacity(0.3)),
+                                                    ),
+                                                    child: const Text(
+                                                      '收藏',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: CupertinoColors.systemOrange,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(CupertinoIcons.chevron_right, color: CupertinoColors.systemGrey3, size: 20),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      } else if (ThemeManager().isFluentFramework) {
         selectedPlaylist = await fluent.showDialog<NeteasePlaylistInfo>(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -1179,7 +1552,36 @@ class ImportPlaylistDialog {
     final kugouService = KugouLoginService();
 
     // 显示加载对话框
-    if (ThemeManager().isFluentFramework) {
+    if (ThemeManager().isCupertinoFramework) {
+      showCupertinoDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: CupertinoColors.systemBackground.resolveFrom(context),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CupertinoActivityIndicator(radius: 16),
+                const SizedBox(height: 16),
+                Text(
+                  '正在获取「${kugouPlaylist.name}」的歌曲...',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: CupertinoColors.label.resolveFrom(context),
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } else if (ThemeManager().isFluentFramework) {
       fluent.showDialog(
         context: context,
         barrierDismissible: false,
@@ -1229,7 +1631,44 @@ class ImportPlaylistDialog {
       void Function(void Function())? dialogSetState;
       
       if (context.mounted) {
-        if (ThemeManager().isFluentFramework) {
+        if (ThemeManager().isCupertinoFramework) {
+          showCupertinoDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogCtx) {
+              return StatefulBuilder(
+                builder: (context, setState) {
+                  dialogSetState = setState;
+                  return Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemBackground.resolveFrom(context),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CupertinoActivityIndicator(radius: 16),
+                          const SizedBox(height: 16),
+                          Text(
+                            '正在导入\n$currentProgress/${tracks.length}',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: CupertinoColors.label.resolveFrom(context),
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        } else if (ThemeManager().isFluentFramework) {
           fluent.showDialog(
             context: context,
             barrierDismissible: false,
@@ -1399,7 +1838,21 @@ class ImportPlaylistDialog {
       if (!context.mounted) return;
       Navigator.pop(context); // 关闭加载对话框
 
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        await showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('获取歌曲失败'),
+            content: Text('$e'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else if (ThemeManager().isFluentFramework) {
         await fluent.showDialog(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -1435,7 +1888,39 @@ class ImportPlaylistDialog {
   static Future<void> _fetchAndImportPlaylist(
       BuildContext context, MusicPlatform platform, String playlistId) async {
     // 显示加载对话框
-    if (ThemeManager().isFluentFramework) {
+    if (ThemeManager().isCupertinoFramework) {
+      showCupertinoDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => WillPopScope(
+          onWillPop: () async => false,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemBackground.resolveFrom(context),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CupertinoActivityIndicator(radius: 16),
+                  const SizedBox(height: 16),
+                  Text(
+                    '正在获取${platform.name}歌单信息...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: CupertinoColors.label.resolveFrom(context),
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } else if (ThemeManager().isFluentFramework) {
       fluent.showDialog(
         context: context,
         barrierDismissible: false,
@@ -1528,7 +2013,21 @@ class ImportPlaylistDialog {
       if (!context.mounted) return;
       Navigator.pop(context); // 关闭加载对话框
 
-      if (ThemeManager().isFluentFramework) {
+      if (ThemeManager().isCupertinoFramework) {
+        await showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('导入失败'),
+            content: Text('获取歌单失败: $e'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      } else if (ThemeManager().isFluentFramework) {
         await fluent.showDialog(
           context: context,
           builder: (context) => fluent.ContentDialog(
@@ -1573,7 +2072,9 @@ class ImportPlaylistDialog {
     if (!context.mounted) return;
 
     Playlist? targetPlaylist;
-    if (ThemeManager().isFluentFramework) {
+    if (ThemeManager().isCupertinoFramework) {
+      targetPlaylist = await _showCupertinoSelectTargetPlaylistDialog(context, sourcePlaylist);
+    } else if (ThemeManager().isFluentFramework) {
       targetPlaylist = await _showFluentSelectTargetPlaylistDialog(context, sourcePlaylist);
     } else {
       targetPlaylist = await showDialog<Playlist>(
@@ -1587,6 +2088,316 @@ class ImportPlaylistDialog {
     if (targetPlaylist != null && context.mounted) {
       await _importTracks(context, sourcePlaylist, targetPlaylist);
     }
+  }
+
+  /// Cupertino UI: 选择目标歌单对话框
+  static Future<Playlist?> _showCupertinoSelectTargetPlaylistDialog(
+    BuildContext context,
+    UniversalPlaylist sourcePlaylist,
+  ) async {
+    final playlistService = PlaylistService();
+    if (playlistService.playlists.isEmpty) {
+      await playlistService.loadPlaylists();
+    }
+    if (!context.mounted) return null;
+
+    return showCupertinoModalPopup<Playlist>(
+      context: context,
+      builder: (context) {
+        final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+        
+        // 内部状态组件，用于处理新建歌单
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Material(
+              type: MaterialType.transparency,
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.7,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.systemBackground,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      // 顶部拖动条
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey3,
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                      // 标题栏
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('取消'),
+                            ),
+                            Text(
+                              '选择目标歌单',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                              ),
+                            ),
+                            const SizedBox(width: 60), // 占位
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      // 内容区域
+                      Expanded(
+                        child: ListView(
+                          padding: EdgeInsets.zero,
+                          children: [
+                            // 源歌单信息
+                            Container(
+                              margin: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: CupertinoColors.systemGrey6.resolveFrom(context),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Image.network(
+                                      sourcePlaylist.coverImgUrl,
+                                      width: 60,
+                                      height: 60,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        width: 60,
+                                        height: 60,
+                                        color: CupertinoColors.systemGrey5,
+                                        child: const Icon(Icons.music_note, color: CupertinoColors.systemGrey),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${sourcePlaylist.name}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '来源: ${sourcePlaylist.platform.name} · ${sourcePlaylist.trackCount} 首',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: CupertinoColors.systemGrey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            
+                            // 新建歌单
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  final controller = TextEditingController(text: sourcePlaylist.name);
+                                  final name = await showCupertinoDialog<String>(
+                                    context: context,
+                                    builder: (context) => CupertinoAlertDialog(
+                                      title: const Text('新建歌单'),
+                                      content: Padding(
+                                        padding: const EdgeInsets.only(top: 16),
+                                        child: CupertinoTextField(
+                                          controller: controller,
+                                          placeholder: '歌单名称',
+                                          autofocus: true,
+                                        ),
+                                      ),
+                                      actions: [
+                                        CupertinoDialogAction(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text('取消'),
+                                        ),
+                                        CupertinoDialogAction(
+                                          onPressed: () {
+                                            final n = controller.text.trim();
+                                            if (n.isNotEmpty) {
+                                              Navigator.pop(context, n);
+                                            }
+                                          },
+                                          child: const Text('创建'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  
+                                  if (name != null) {
+                                    final success = await playlistService.createPlaylist(name);
+                                    if (success && context.mounted) {
+                                      setState(() {}); // 刷新列表
+                                      // 可选：直接选中并返回
+                                      // Navigator.pop(context, playlistService.playlists.firstWhere((p) => p.name == name));
+                                    }
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: CupertinoColors.activeBlue,
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: const Icon(CupertinoIcons.add, color: CupertinoColors.white, size: 24),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '新建歌单',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            const Text(
+                                              '创建一个新歌单来导入',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: CupertinoColors.systemGrey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(CupertinoIcons.chevron_right, color: CupertinoColors.systemGrey3, size: 20),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Text(
+                                '现有歌单',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: CupertinoColors.systemGrey,
+                                ),
+                              ),
+                            ),
+                            
+                            // 现有歌单列表
+                            ...playlistService.playlists.map((p) {
+                              return Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => Navigator.pop(context, p),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color: p.isDefault ? CupertinoColors.systemPink.withOpacity(0.1) : CupertinoColors.systemGrey5,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Icon(
+                                            p.isDefault ? CupertinoIcons.heart_fill : CupertinoIcons.music_albums,
+                                            color: p.isDefault ? CupertinoColors.systemPink : CupertinoColors.systemGrey,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                p.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${p.trackCount} 首歌曲',
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  color: CupertinoColors.systemGrey,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (p.isDefault)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            margin: const EdgeInsets.only(right: 8),
+                                            decoration: BoxDecoration(
+                                              color: CupertinoColors.systemPink.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              '默认',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: CupertinoColors.systemPink,
+                                              ),
+                                            ),
+                                          ),
+                                        const Icon(CupertinoIcons.chevron_right, color: CupertinoColors.systemGrey3, size: 20),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   /// Fluent UI: 选择目标歌单对话框
@@ -2360,6 +3171,367 @@ class _ImportProgressDialog extends StatelessWidget {
     );
   }
 }
+
+/// 获取输入提示文本（顶级函数版本）
+String _getInputHintTextImpl(MusicPlatform platform) {
+  switch (platform) {
+    case MusicPlatform.netease:
+      return '支持以下两种输入方式：\n• 直接输入歌单ID，如：19723756\n• 粘贴完整URL，如：https://music.163.com/#/playlist?id=19723756';
+    case MusicPlatform.qq:
+      return '支持以下两种输入方式：\n• 直接输入歌单ID，如：8522515502\n• 粘贴完整URL，如：https://y.qq.com/n/ryqq/playlist/8522515502';
+    case MusicPlatform.kuwo:
+      return '支持以下两种输入方式：\n• 直接输入歌单ID，如：3567349593\n• 粘贴分享链接，如：https://m.kuwo.cn/newh5app/playlist_detail/3567349593';
+    case MusicPlatform.kugou:
+      return '';
+  }
+}
+
+/// Cupertino 风格的导入对话框
+Future<Map<String, dynamic>?> _showCupertinoImportDialogImpl(
+    BuildContext context,
+    TextEditingController controller,
+    MusicPlatform initialPlatform,
+    String initialImportMode,
+  ) async {
+    MusicPlatform selectedPlatform = initialPlatform;
+    String neteaseImportMode = initialImportMode;
+    
+    return await showCupertinoModalPopup<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+          
+          return Material(
+            type: MaterialType.transparency,
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.systemBackground,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: [
+                    // 顶部拖动条
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      width: 36,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey3,
+                        borderRadius: BorderRadius.circular(2.5),
+                      ),
+                    ),
+                    // 标题栏
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('取消'),
+                          ),
+                          Text(
+                            '导入歌单',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                            ),
+                          ),
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              // 酷狗音乐直接进入歌单选择
+                              if (selectedPlatform == MusicPlatform.kugou) {
+                                Navigator.pop(context, {
+                                  'platform': selectedPlatform,
+                                  'isKugou': true,
+                                });
+                                return;
+                              }
+                              // 网易云从账号导入
+                              if (selectedPlatform == MusicPlatform.netease && neteaseImportMode == 'account') {
+                                Navigator.pop(context, {
+                                  'platform': selectedPlatform,
+                                  'isNeteaseAccount': true,
+                                });
+                                return;
+                              }
+                              final input = controller.text.trim();
+                              if (input.isEmpty) {
+                                _showCupertinoToastImpl(context, '请输入歌单ID或URL');
+                                return;
+                              }
+                              String? playlistId;
+                              if (selectedPlatform == MusicPlatform.netease) {
+                                playlistId = ImportPlaylistDialog._parseNeteasePlaylistId(input);
+                              } else if (selectedPlatform == MusicPlatform.qq) {
+                                playlistId = ImportPlaylistDialog._parseQQPlaylistId(input);
+                              } else if (selectedPlatform == MusicPlatform.kuwo) {
+                                playlistId = ImportPlaylistDialog._parseKuwoPlaylistId(input);
+                              }
+                              if (playlistId == null) {
+                                _showCupertinoToastImpl(context, '无效的${selectedPlatform.name}歌单ID或URL格式');
+                                return;
+                              }
+                              Navigator.pop(context, {
+                                'platform': selectedPlatform,
+                                'playlistId': playlistId,
+                              });
+                            },
+                            child: const Text('下一步', style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    // 内容区域
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 平台选择
+                            Text(
+                              '选择平台',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.white,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Column(
+                                children: MusicPlatform.values.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final platform = entry.value;
+                                  final isSelected = selectedPlatform == platform;
+                                  final isLast = index == MusicPlatform.values.length - 1;
+                                  
+                                  return Column(
+                                    children: [
+                                      CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () {
+                                          setState(() {
+                                            selectedPlatform = platform;
+                                            controller.clear();
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  platform.name,
+                                                  style: TextStyle(
+                                                    fontSize: 17,
+                                                    color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (isSelected)
+                                                const Icon(CupertinoIcons.checkmark, color: CupertinoColors.systemBlue, size: 20),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      if (!isLast)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 48),
+                                          child: Container(height: 0.5, color: CupertinoColors.systemGrey4),
+                                        ),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            // 根据平台显示不同内容
+                            if (selectedPlatform == MusicPlatform.kugou) ...[
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: CupertinoColors.systemBlue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(CupertinoIcons.info_circle, color: CupertinoColors.systemBlue, size: 22),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        '点击"下一步"将显示您绑定的酷狗账号中的歌单',
+                                        style: TextStyle(fontSize: 15, color: isDark ? CupertinoColors.white : CupertinoColors.black),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else if (selectedPlatform == MusicPlatform.netease) ...[
+                              Text(
+                                '导入方式',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: CupertinoColors.systemGrey),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () => setState(() {
+                                        neteaseImportMode = 'account';
+                                        controller.clear();
+                                      }),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '从绑定账号导入',
+                                                style: TextStyle(fontSize: 17, color: isDark ? CupertinoColors.white : CupertinoColors.black),
+                                              ),
+                                            ),
+                                            if (neteaseImportMode == 'account')
+                                              const Icon(CupertinoIcons.checkmark, color: CupertinoColors.systemBlue, size: 20),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 16),
+                                      child: Container(height: 0.5, color: CupertinoColors.systemGrey4),
+                                    ),
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () => setState(() => neteaseImportMode = 'url'),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '输入歌单ID/URL',
+                                                style: TextStyle(fontSize: 17, color: isDark ? CupertinoColors.white : CupertinoColors.black),
+                                              ),
+                                            ),
+                                            if (neteaseImportMode == 'url')
+                                              const Icon(CupertinoIcons.checkmark, color: CupertinoColors.systemBlue, size: 20),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              if (neteaseImportMode == 'account') ...[
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: CupertinoColors.systemBlue.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(CupertinoIcons.info_circle, color: CupertinoColors.systemBlue, size: 22),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          '点击"下一步"将显示您绑定的网易云账号中的歌单',
+                                          style: TextStyle(fontSize: 15, color: isDark ? CupertinoColors.white : CupertinoColors.black),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else ...[
+                                Text(
+                                  _getInputHintTextImpl(selectedPlatform),
+                                  style: TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+                                ),
+                                const SizedBox(height: 12),
+                                CupertinoTextField(
+                                  controller: controller,
+                                  placeholder: '歌单ID或URL',
+                                  maxLines: 2,
+                                  padding: const EdgeInsets.all(12),
+                                ),
+                              ],
+                            ] else ...[
+                              Text(
+                                '输入歌单信息',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: CupertinoColors.systemGrey),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                ImportPlaylistDialog._getInputHintText(selectedPlatform),
+                                style: TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+                              ),
+                              const SizedBox(height: 12),
+                              CupertinoTextField(
+                                controller: controller,
+                                placeholder: '歌单ID或URL',
+                                maxLines: 2,
+                                padding: const EdgeInsets.all(12),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+/// Cupertino Toast 提示
+void _showCupertinoToastImpl(BuildContext context, String message) {
+    showCupertinoDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (Navigator.canPop(context)) Navigator.pop(context);
+        });
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: BoxDecoration(
+              color: CupertinoColors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(color: CupertinoColors.white, fontSize: 14),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
 /// 字符串相似度计算（Levenshtein距离）
 int _levenshteinDistance(String s1, String s2) {

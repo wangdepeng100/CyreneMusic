@@ -1,11 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
+import 'package:flutter/cupertino.dart';
 import '../services/netease_discover_service.dart';
 import '../models/netease_discover.dart';
 import '../utils/theme_manager.dart';
 import 'discover_playlist_detail_page.dart';
 import 'discover_page/discover_breadcrumbs.dart';
+import '../widgets/cupertino/cupertino_discover_widgets.dart';
 
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
@@ -48,7 +51,200 @@ class _DiscoverPageState extends State<DiscoverPage> {
       return _buildFluentPage(context, service);
     }
 
+    if ((Platform.isIOS || Platform.isAndroid) && _themeManager.isCupertinoFramework) {
+      return _buildCupertinoPage(context, service);
+    }
+
     return _buildMaterialPage(context, service);
+  }
+
+  Widget _buildCupertinoPage(
+    BuildContext context,
+    NeteaseDiscoverService service,
+  ) {
+    // 如果选中了歌单，显示详情页（模拟导航堆栈）
+    if (_selectedPlaylistId != null) {
+      return CupertinoPageScaffold(
+        navigationBar: CupertinoNavigationBar(
+          previousPageTitle: '发现',
+          middle: Text(_selectedPlaylistName ?? '歌单详情'),
+          leading: CupertinoNavigationBarBackButton(
+            onPressed: () {
+              setState(() {
+                _selectedPlaylistId = null;
+                _selectedPlaylistName = null;
+              });
+            },
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: DiscoverPlaylistDetailContent(
+            playlistId: _selectedPlaylistId!,
+          ),
+        ),
+      );
+    }
+
+    return CupertinoPageScaffold(
+      child: CustomScrollView(
+        slivers: [
+          const CupertinoSliverNavigationBar(
+            largeTitle: Text('发现'),
+            border: null,
+            // 使用默认或半透明背景以避免内容重叠
+            backgroundColor: null, 
+          ),
+          CupertinoSliverRefreshControl(
+            onRefresh: () async {
+              final currentCat = NeteaseDiscoverService().currentCat;
+              await NeteaseDiscoverService().fetchDiscoverPlaylists(cat: currentCat);
+            },
+          ),
+          ..._buildCupertinoSlivers(service),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 80),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildCupertinoSlivers(NeteaseDiscoverService service) {
+    if (service.isLoading) {
+      return [
+        const SliverFillRemaining(
+          child: Center(
+            child: CupertinoActivityIndicator(radius: 16),
+          ),
+        ),
+      ];
+    }
+    if (service.errorMessage != null) {
+      return [
+        SliverFillRemaining(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(CupertinoIcons.exclamationmark_circle,
+                      size: 48, color: CupertinoColors.systemRed),
+                  const SizedBox(height: 16),
+                  Text(
+                    service.errorMessage!,
+                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  CupertinoButton(
+                    child: const Text('重试'),
+                    onPressed: () =>
+                        NeteaseDiscoverService().fetchDiscoverPlaylists(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    final items = service.playlists;
+    if (items.isEmpty) {
+      return [
+        const SliverFillRemaining(
+          child: Center(child: Text('暂无数据')),
+        ),
+      ];
+    }
+
+    return [
+      // 1. 分类选择器
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              CupertinoTagSelector(
+                currentTag: service.currentCat,
+                onTap: () => _showCupertinoTagDialog(service),
+              ),
+            ],
+          ),
+        ),
+      ),
+      // 2. 歌单网格 - 使用 SliverGrid 优化性能
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: SliverLayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.crossAxisExtent;
+            int crossAxisCount = 2;
+            if (width >= 600) crossAxisCount = 3;
+            if (width >= 800) crossAxisCount = 4;
+            if (width >= 1200) crossAxisCount = 5;
+
+            return SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 0.75,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  return CupertinoDiscoverPlaylistCard(
+                    summary: items[index],
+                    onTap: () {
+                      setState(() {
+                        _selectedPlaylistId = items[index].id;
+                        _selectedPlaylistName = items[index].name;
+                      });
+                    },
+                  );
+                },
+                childCount: items.length,
+              ),
+            );
+          },
+        ),
+      ),
+    ];
+  }
+
+  void _showCupertinoTagDialog(NeteaseDiscoverService service) {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('选择歌单类型'),
+        message: const Text('请选择您感兴趣的歌单分类'),
+        actions: [
+          CupertinoActionSheetAction(
+            isDefaultAction: service.currentCat.isEmpty || service.currentCat == '全部歌单',
+            onPressed: () {
+              Navigator.pop(context);
+              NeteaseDiscoverService().fetchDiscoverPlaylists(cat: '全部歌单');
+            },
+            child: const Text('全部歌单'),
+          ),
+          ...service.tags.map((t) => CupertinoActionSheetAction(
+            isDefaultAction: service.currentCat == t.name,
+            onPressed: () {
+              Navigator.pop(context);
+              NeteaseDiscoverService().fetchDiscoverPlaylists(cat: t.name);
+            },
+            child: Text(t.name),
+          )),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ),
+    );
   }
 
   Widget _buildMaterialPage(

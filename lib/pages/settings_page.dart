@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent_ui;
 import '../utils/theme_manager.dart';
-import '../widgets/cupertino/cupertino_settings_widgets.dart';
 import '../services/url_service.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
@@ -314,97 +313,321 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  /// 构建 Cupertino UI 版本（iOS 风格）
+  /// 构建 Cupertino UI 版本（iOS 26 风格）
   Widget _buildCupertinoUI(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isDark ? CupertinoColors.black : CupertinoColors.systemGroupedBackground;
     
-    return CupertinoPageScaffold(
-      backgroundColor: backgroundColor,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: backgroundColor.withOpacity(0.8),
-        border: null,
-        leading: _currentSubPage != SettingsSubPage.none
-            ? CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: closeSubPage,
-                child: const Icon(CupertinoIcons.back),
-              )
-            : null,
-        middle: Text(_getPageTitle()),
-      ),
-      child: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          transitionBuilder: (Widget child, Animation<double> animation) {
-            final offset = child.key == const ValueKey('main_settings')
-                ? const Offset(-1.0, 0.0)
-                : const Offset(1.0, 0.0);
-                
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: offset,
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeInOutCubic,
-              )),
-              child: child,
-            );
-          },
-          child: _currentSubPage != SettingsSubPage.none
-              ? KeyedSubtree(
-                  key: ValueKey('sub_settings_${_currentSubPage.name}'),
-                  child: _buildCupertinoSubPage(context),
-                )
-              : KeyedSubtree(
-                  key: const ValueKey('main_settings'),
-                  child: CupertinoScrollbar(
-                    child: ListView(
-                      children: [
-                        // 用户卡片
-                        CupertinoSettingsSection(
-                          children: [UserCard()],
-                        ),
-                        
-                        // 第三方账号管理
-                        ThirdPartyAccounts(onTap: () => openSubPage(SettingsSubPage.thirdPartyAccounts)),
-                        
-                        // 外观设置
-                        AppearanceSettings(onTap: () => openSubPage(SettingsSubPage.appearance)),
-                        
-                        // 歌词设置（仅 Android 平台）
-                        LyricSettings(onTap: () => openSubPage(SettingsSubPage.lyric)),
-                        
-                        // 播放设置
-                        CupertinoSettingsSection(
-                          header: '播放',
-                          children: const [PlaybackSettings()],
-                        ),
-                        
-                        // 网络设置
-                        CupertinoSettingsSection(
-                          header: '网络',
-                          children: const [NetworkSettings()],
-                        ),
-                        
-                        // 存储设置
-                        CupertinoSettingsSection(
-                          header: '存储',
-                          children: const [StorageSettings()],
-                        ),
-                        
-                        // 关于
-                        CupertinoSettingsSection(
-                          header: '关于',
-                          children: const [AboutSettings()],
-                        ),
-                        
-                        const SizedBox(height: 40),
-                      ],
-                    ),
+    // 子页面使用标准导航栏
+    if (_currentSubPage != SettingsSubPage.none) {
+      return CupertinoPageScaffold(
+        backgroundColor: backgroundColor,
+        navigationBar: CupertinoNavigationBar(
+          backgroundColor: backgroundColor.withOpacity(0.8),
+          border: null,
+          leading: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: closeSubPage,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(CupertinoIcons.back, size: 20),
+                const SizedBox(width: 4),
+                Text(
+                  '设置',
+                  style: TextStyle(
+                    color: CupertinoTheme.of(context).primaryColor,
+                    fontSize: 17,
                   ),
                 ),
+              ],
+            ),
+          ),
+          middle: Text(_getPageTitle()),
+        ),
+        child: SafeArea(
+          child: _buildCupertinoSubPage(context),
+        ),
+      );
+    }
+    
+    // 主设置页面使用大标题导航栏 (iOS 26 风格)
+    return CupertinoPageScaffold(
+      backgroundColor: backgroundColor,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // iOS 26 大标题导航栏
+          CupertinoSliverNavigationBar(
+            largeTitle: const Text('设置'),
+            backgroundColor: backgroundColor,
+            border: null,
+            stretch: false,
+          ),
+          
+          // 主内容
+          SliverToBoxAdapter(
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                const SizedBox(height: 8),
+                
+                // 用户卡片 - iOS 26 风格
+                _buildCupertinoUserSection(context, isDark),
+                
+                const SizedBox(height: 24),
+                
+                // 账号设置分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '账号',
+                  children: [
+                    _buildCupertinoSettingsItem(
+                      context,
+                      isDark: isDark,
+                      icon: CupertinoIcons.link,
+                      iconColor: const Color(0xFF5856D6),
+                      title: '第三方账号',
+                      subtitle: '网易云音乐等',
+                      onTap: () => openSubPage(SettingsSubPage.thirdPartyAccounts),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // 外观与显示分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '外观与显示',
+                  children: [
+                    _buildCupertinoSettingsItem(
+                      context,
+                      isDark: isDark,
+                      icon: CupertinoIcons.paintbrush,
+                      iconColor: const Color(0xFFFF9500),
+                      title: '外观',
+                      subtitle: '主题、颜色、界面',
+                      onTap: () => openSubPage(SettingsSubPage.appearance),
+                    ),
+                    _buildCupertinoSettingsItem(
+                      context,
+                      isDark: isDark,
+                      icon: CupertinoIcons.text_quote,
+                      iconColor: const Color(0xFF34C759),
+                      title: '歌词',
+                      subtitle: '歌词显示设置',
+                      onTap: () => openSubPage(SettingsSubPage.lyric),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // 播放设置分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '播放',
+                  children: const [
+                    PlaybackSettings(),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // 网络设置分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '网络',
+                  children: const [
+                    NetworkSettings(),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // 存储设置分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '存储',
+                  children: const [
+                    StorageSettings(),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // 关于分组
+                _buildCupertinoSettingsGroup(
+                  context,
+                  isDark: isDark,
+                  header: '关于',
+                  children: const [
+                    AboutSettings(),
+                  ],
+                ),
+                
+                const SizedBox(height: 100), // 底部留白
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 构建 iOS 26 风格的用户卡片区域
+  Widget _buildCupertinoUserSection(BuildContext context, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: UserCard(),
+      ),
+    );
+  }
+  
+  /// 构建 iOS 26 风格的设置分组
+  Widget _buildCupertinoSettingsGroup(
+    BuildContext context, {
+    required bool isDark,
+    String? header,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (header != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, bottom: 8),
+            child: Text(
+              header.toUpperCase(),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: CupertinoColors.systemGrey,
+                letterSpacing: -0.08,
+              ),
+            ),
+          ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: _buildChildrenWithDividers(context, children, isDark),
+          ),
+        ),
+      ],
+    );
+  }
+  
+  /// 构建带分隔线的子项列表
+  List<Widget> _buildChildrenWithDividers(BuildContext context, List<Widget> children, bool isDark) {
+    final List<Widget> result = [];
+    
+    for (int i = 0; i < children.length; i++) {
+      result.add(children[i]);
+      if (i < children.length - 1) {
+        result.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 60),
+            child: Container(
+              height: 0.5,
+              color: isDark 
+                  ? CupertinoColors.systemGrey.withOpacity(0.3) 
+                  : CupertinoColors.systemGrey.withOpacity(0.3),
+            ),
+          ),
+        );
+      }
+    }
+    
+    return result;
+  }
+  
+  /// 构建 iOS 26 风格的设置项
+  Widget _buildCupertinoSettingsItem(
+    BuildContext context, {
+    required bool isDark,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    String? subtitle,
+    VoidCallback? onTap,
+  }) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            // iOS 风格图标容器
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: iconColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                color: CupertinoColors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 17,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              color: CupertinoColors.systemGrey.withOpacity(0.6),
+              size: 18,
+            ),
+          ],
         ),
       ),
     );

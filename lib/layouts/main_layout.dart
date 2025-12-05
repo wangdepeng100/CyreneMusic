@@ -3,13 +3,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../widgets/custom_title_bar.dart';
 import '../widgets/cupertino/cupertino_bottom_nav.dart';
 import '../widgets/mini_player.dart';
 import '../pages/home_page.dart';
 import '../pages/discover_page.dart';
 import '../pages/history_page.dart';
-import '../pages/my_page.dart';
+import '../pages/my_page/my_page.dart';
 import '../pages/local_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/developer_page.dart';
@@ -448,21 +449,27 @@ class _MainLayoutState extends State<MainLayout>
         _handleAndroidBack();
       },
       child: Scaffold(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: isCupertinoUI 
+            ? (Theme.of(context).brightness == Brightness.dark 
+                ? CupertinoColors.black 
+                : CupertinoColors.systemGroupedBackground)
+            : colorScheme.surface,
         body: Stack(
           children: [
-            // 主内容层
-            Column(
-              children: [
-                if (Platform.isWindows) const CustomTitleBar(),
-                Expanded(child: _pages[_selectedIndex]),
-              ],
+            // 主内容层 - 使用 RepaintBoundary 隔离，防止 BackdropFilter 导致滚动残影
+            RepaintBoundary(
+              child: Column(
+                children: [
+                  if (Platform.isWindows) const CustomTitleBar(),
+                  Expanded(child: _pages[_selectedIndex]),
+                ],
+              ),
             ),
             // 悬浮迷你播放器（不占用布局空间）
             Positioned(
               left: 0,
               right: 0,
-              bottom: 0,
+              bottom: isCupertinoUI ? 80 : 0, // Cupertino 模式下给悬浮 Tab 栏留空间
               child: AnimatedBuilder(
                 animation: PlayerService(),
                 builder: (context, child) {
@@ -474,22 +481,32 @@ class _MainLayoutState extends State<MainLayout>
                 },
               ),
             ),
+            // iOS 26 悬浮液态玻璃 Tab 栏
+            if (isCupertinoUI)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _buildCupertinoTabBar(context),
+              ),
           ],
         ),
+        // 非 Cupertino 模式使用 bottomNavigationBar
         bottomNavigationBar: isCupertinoUI 
-            ? _buildCupertinoTabBar(context)
+            ? null
             : _buildGlassBottomNavigationBar(context),
       ),
     );
   }
 
-  /// 构建 Cupertino 风格的底部导航栏
+  /// 构建 iOS 26 风格的悬浮液态玻璃底部导航栏
   Widget _buildCupertinoTabBar(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final orientation = MediaQuery.of(context).orientation;
     final bool isLandscape = orientation == Orientation.landscape;
     final int supportIndex = _supportIndex;
     final int myIndex = _pages.indexWhere((w) => w is MyPage);
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
     
     // 计算当前选中的 tab 索引
     int navSelectedIndex() {
@@ -500,77 +517,126 @@ class _MainLayoutState extends State<MainLayout>
       return isLandscape ? 4 : 3; // 更多
     }
     
-    // 构建 tab items
-    List<BottomNavigationBarItem> items = [
-      BottomNavigationBarItem(
-        icon: const Icon(CupertinoIcons.house),
-        activeIcon: const Icon(CupertinoIcons.house_fill),
+    // Tab 项目数据 - 使用自定义 SVG 图标
+    final List<_FloatingTabItem> tabItems = [
+      _FloatingTabItem(
+        svgAsset: 'assets/ui/FluentColorHome16.svg',
         label: '首页',
       ),
-      BottomNavigationBarItem(
-        icon: const Icon(CupertinoIcons.compass),
-        activeIcon: const Icon(CupertinoIcons.compass_fill),
+      _FloatingTabItem(
+        svgAsset: 'assets/ui/FluentColorSearchSparkle16.svg',
         label: '发现',
       ),
-      BottomNavigationBarItem(
-        icon: const Icon(CupertinoIcons.person),
-        activeIcon: const Icon(CupertinoIcons.person_fill),
+      _FloatingTabItem(
+        svgAsset: 'assets/ui/FluentColorPerson16.svg',
         label: '我的',
       ),
       if (isLandscape)
-        BottomNavigationBarItem(
-          icon: const Icon(CupertinoIcons.heart),
-          activeIcon: const Icon(CupertinoIcons.heart_fill),
+        _FloatingTabItem(
+          svgAsset: 'assets/ui/FluentColorHeart16.svg',
           label: '支持',
         ),
-      BottomNavigationBarItem(
-        icon: const Icon(CupertinoIcons.ellipsis),
-        activeIcon: const Icon(CupertinoIcons.ellipsis),
+      _FloatingTabItem(
+        svgAsset: 'assets/ui/FluentColorAppsList20.svg',
         label: '更多',
       ),
     ];
     
+    final int currentIndex = navSelectedIndex();
+    
     return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: isDark 
-                ? CupertinoColors.systemGrey.withOpacity(0.3)
-                : CupertinoColors.systemGrey.withOpacity(0.2),
-            width: 0.5,
-          ),
-        ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: bottomPadding > 0 ? bottomPadding : 16,
+        top: 8,
       ),
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: CupertinoTabBar(
-            currentIndex: navSelectedIndex(),
-            onTap: (int tabIndex) async {
-              final int moreTab = items.length - 1;
-              if (tabIndex == moreTab) {
-                await _openCupertinoMoreSheet(context);
-                return;
-              }
-              
-              int targetPageIndex = _selectedIndex;
-              if (tabIndex == 0) targetPageIndex = 0; // 首页
-              if (tabIndex == 1) targetPageIndex = 1; // 发现
-              if (tabIndex == 2) targetPageIndex = myIndex; // 我的
-              if (isLandscape && tabIndex == 3) targetPageIndex = supportIndex; // 支持
-              
-              setState(() {
-                _selectedIndex = targetPageIndex;
-              });
-              PageVisibilityNotifier().setCurrentPage(targetPageIndex);
-            },
-            items: items,
-            activeColor: ThemeManager.iosBlue,
-            inactiveColor: CupertinoColors.systemGrey,
-            backgroundColor: isDark 
-                ? CupertinoColors.black.withOpacity(0.7)
-                : CupertinoColors.white.withOpacity(0.7),
-          ),
+      child: _LiquidGlassContainer(
+        borderRadius: 32,
+        height: 60,
+        isDark: isDark,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: List.generate(tabItems.length, (index) {
+            final item = tabItems[index];
+            final isSelected = index == currentIndex;
+            
+            return Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () async {
+                  final int moreTab = tabItems.length - 1;
+                  if (index == moreTab) {
+                    await _openCupertinoMoreSheet(context);
+                    return;
+                  }
+                  
+                  int targetPageIndex = _selectedIndex;
+                  if (index == 0) targetPageIndex = 0; // 首页
+                  if (index == 1) targetPageIndex = 1; // 发现
+                  if (index == 2) targetPageIndex = myIndex; // 我的
+                  if (isLandscape && index == 3) targetPageIndex = supportIndex; // 支持
+                  
+                  setState(() {
+                    _selectedIndex = targetPageIndex;
+                  });
+                  PageVisibilityNotifier().setCurrentPage(targetPageIndex);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // 图标容器（选中时有背景）
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSelected ? 16 : 12,
+                          vertical: isSelected ? 6 : 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? ThemeManager.iosBlue.withOpacity(0.2)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: SvgPicture.asset(
+                          item.svgAsset,
+                          width: 22,
+                          height: 22,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      // 标签
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: isSelected
+                              ? ThemeManager.iosBlue
+                              : (isDark 
+                                  ? Colors.white.withOpacity(0.7) 
+                                  : Colors.black.withOpacity(0.5)),
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Text(item.label),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
         ),
       ),
     );
@@ -1025,4 +1091,169 @@ class _CollapsedItem {
     required this.selectedIcon,
     required this.label,
   });
+}
+
+/// iOS 26 风格悬浮 Tab 项目数据
+class _FloatingTabItem {
+  final String svgAsset;
+  final String label;
+  const _FloatingTabItem({
+    required this.svgAsset,
+    required this.label,
+  });
+}
+
+/// iOS 26 液态玻璃容器
+/// 参考 Apple 的 Liquid Glass 设计语言
+class _LiquidGlassContainer extends StatelessWidget {
+  final Widget child;
+  final double borderRadius;
+  final double height;
+  final bool isDark;
+  
+  const _LiquidGlassContainer({
+    required this.child,
+    required this.borderRadius,
+    required this.height,
+    required this.isDark,
+  });
+  
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(borderRadius),
+        // 外部阴影
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.5 : 0.15),
+            blurRadius: 32,
+            offset: const Offset(0, 12),
+            spreadRadius: -4,
+          ),
+          // 底部环境光反射
+          BoxShadow(
+            color: ThemeManager.iosBlue.withOpacity(isDark ? 0.2 : 0.1),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+            spreadRadius: -8,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: BackdropFilter(
+          // 极致背景模糊
+          filter: ui.ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+          child: CustomPaint(
+            painter: _LiquidGlassPainter(
+              borderRadius: borderRadius,
+              isDark: isDark,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(borderRadius),
+                // 半透明背景 - 增加噪点纹理感
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    (isDark ? const Color(0xFF3A3A3C) : Colors.white).withOpacity(isDark ? 0.6 : 0.5),
+                    (isDark ? const Color(0xFF1C1C1E) : Colors.white).withOpacity(isDark ? 0.4 : 0.2),
+                  ],
+                ),
+                // 边框由 Painter 绘制以实现渐变
+              ),
+              child: Stack(
+                children: [
+                  // 顶部高光
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: height / 2,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withOpacity(isDark ? 0.1 : 0.4),
+                            Colors.white.withOpacity(0),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(borderRadius),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 内容
+                  child,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 液态玻璃内阴影绘制器
+class _LiquidGlassPainter extends CustomPainter {
+  final double borderRadius;
+  final bool isDark;
+  
+  _LiquidGlassPainter({
+    required this.borderRadius,
+    required this.isDark,
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final rrect = RRect.fromRectAndRadius(rect, Radius.circular(borderRadius));
+    
+    // 1. 绘制细腻的边框 (渐变)
+    final borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withOpacity(isDark ? 0.3 : 0.8),
+          Colors.white.withOpacity(isDark ? 0.05 : 0.1),
+          Colors.white.withOpacity(isDark ? 0.05 : 0.1),
+          Colors.white.withOpacity(isDark ? 0.2 : 0.4),
+        ],
+        stops: const [0.0, 0.4, 0.6, 1.0],
+      ).createShader(rect);
+
+    canvas.drawRRect(rrect.deflate(0.5), borderPaint);
+    
+    // 2. 绘制内部反光 (Inset Light)
+    final innerGlowPaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0, -0.8),
+        radius: 1.0,
+        colors: [
+          Colors.white.withOpacity(isDark ? 0.1 : 0.2),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.7],
+      ).createShader(rect);
+      
+    canvas.save();
+    canvas.clipRRect(rrect);
+    canvas.drawRect(rect, innerGlowPaint);
+    canvas.restore();
+  }
+  
+  @override
+  bool shouldRepaint(covariant _LiquidGlassPainter oldDelegate) {
+    return oldDelegate.isDark != isDark || oldDelegate.borderRadius != borderRadius;
+  }
 }

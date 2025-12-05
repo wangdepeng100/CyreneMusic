@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'dart:async';
 import 'dart:io';
 import '../../services/auth_overlay_service.dart';
 import '../../services/auth_service.dart';
+import '../../utils/theme_manager.dart';
 
 /// 显示认证页面（改为内嵌 Stack 页面，而非对话框）
 Future<bool?> showAuthDialog(BuildContext context, {int initialTab = 0}) {
@@ -12,11 +14,16 @@ Future<bool?> showAuthDialog(BuildContext context, {int initialTab = 0}) {
   }
 
   // 移动端：保持整页路由体验
+  final isCupertino = ThemeManager().isCupertinoFramework;
   return Navigator.push<bool>(
     context,
-    MaterialPageRoute(
-      builder: (context) => AuthPage(initialTab: initialTab),
-    ),
+    isCupertino
+        ? CupertinoPageRoute(
+            builder: (context) => AuthPage(initialTab: initialTab),
+          )
+        : MaterialPageRoute(
+            builder: (context) => AuthPage(initialTab: initialTab),
+          ),
   );
 }
 
@@ -32,11 +39,20 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _selectedSegment = 0;
+  
+  bool get _isCupertino => ThemeManager().isCupertinoFramework;
   
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTab);
+    _selectedSegment = widget.initialTab;
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        setState(() => _selectedSegment = _tabController.index);
+      }
+    });
   }
   
   @override
@@ -48,6 +64,11 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isCupertino) {
+      return _buildCupertinoPage(context, colorScheme, isDark);
+    }
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -138,6 +159,79 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
         ],
       ),
     );
+  }
+
+  /// iOS Cupertino 风格页面
+  Widget _buildCupertinoPage(BuildContext context, ColorScheme colorScheme, bool isDark) {
+    // 使用 Material 包装解决 Text 组件黄色下划线问题
+    return Material(
+      type: MaterialType.transparency,
+      child: CupertinoPageScaffold(
+        backgroundColor: isDark ? const Color(0xFF000000) : CupertinoColors.systemGroupedBackground,
+        navigationBar: CupertinoNavigationBar(
+          middle: const Text('账号'),
+          backgroundColor: (isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white).withOpacity(0.9),
+          border: null,
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // iOS 分段控件
+                _buildCupertinoSegmentedControl(isDark),
+                const SizedBox(height: 24),
+                // Tab 内容
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: _buildCupertinoTabContent(isDark),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoSegmentedControl(bool isDark) {
+    return CupertinoSlidingSegmentedControl<int>(
+      groupValue: _selectedSegment,
+      onValueChanged: (value) {
+        if (value != null) {
+          setState(() => _selectedSegment = value);
+          _tabController.animateTo(value);
+        }
+      },
+      children: const {
+        0: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text('登录'),
+        ),
+        1: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text('注册'),
+        ),
+        2: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text('找回密码'),
+        ),
+      },
+    );
+  }
+
+  Widget _buildCupertinoTabContent(bool isDark) {
+    switch (_selectedSegment) {
+      case 0:
+        return _CupertinoLoginView(key: const ValueKey('login'), isDark: isDark);
+      case 1:
+        return _CupertinoRegisterView(key: const ValueKey('register'), isDark: isDark);
+      case 2:
+        return _CupertinoForgotPasswordView(key: const ValueKey('forgot'), isDark: isDark);
+      default:
+        return _CupertinoLoginView(key: const ValueKey('login'), isDark: isDark);
+    }
   }
 
   Widget _buildHeader(ColorScheme colorScheme) {
@@ -1241,6 +1335,764 @@ Widget _buildTextField({
         ),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    ),
+  );
+}
+
+// ============ iOS Cupertino 风格视图 ============
+
+/// iOS 风格登录视图
+class _CupertinoLoginView extends StatefulWidget {
+  final bool isDark;
+  const _CupertinoLoginView({super.key, required this.isDark});
+
+  @override
+  State<_CupertinoLoginView> createState() => _CupertinoLoginViewState();
+}
+
+class _CupertinoLoginViewState extends State<_CupertinoLoginView> {
+  final _accountController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _accountController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    if (_accountController.text.trim().isEmpty || _passwordController.text.isEmpty) {
+      _showCupertinoAlert('请填写完整信息');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final result = await AuthService().login(
+      account: _accountController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      if (result['success']) {
+        _showCupertinoToast(result['message'], isSuccess: true);
+        AuthService().updateLocation();
+        if (AuthOverlayService().isVisible) {
+          AuthOverlayService().hide(true);
+        } else {
+          Navigator.pop(context, true);
+        }
+      } else {
+        _showCupertinoAlert(result['message']);
+      }
+    }
+  }
+
+  void _showCupertinoAlert(String message) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('提示'),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCupertinoToast(String message, {bool isSuccess = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isSuccess ? CupertinoColors.activeGreen : null,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 账号
+        _buildCupertinoTextField(
+          controller: _accountController,
+          placeholder: '邮箱 / 用户名',
+          icon: CupertinoIcons.person_fill,
+          isDark: widget.isDark,
+        ),
+        const SizedBox(height: 16),
+
+        // 密码
+        _buildCupertinoTextField(
+          controller: _passwordController,
+          placeholder: '密码',
+          icon: CupertinoIcons.lock_fill,
+          obscureText: _obscurePassword,
+          isDark: widget.isDark,
+          suffix: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 0,
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            child: Icon(
+              _obscurePassword ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+              color: CupertinoColors.systemGrey,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+
+        // 登录按钮
+        _buildCupertinoButton(
+          label: '登录',
+          isLoading: _isLoading,
+          onPressed: _handleLogin,
+        ),
+        
+        const SizedBox(height: 20),
+        
+        // 提示文字
+        Center(
+          child: Text(
+            '第一次使用？切换到注册标签页创建账号',
+            style: TextStyle(
+              color: CupertinoColors.systemGrey,
+              fontSize: 13,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// iOS 风格注册视图
+class _CupertinoRegisterView extends StatefulWidget {
+  final bool isDark;
+  const _CupertinoRegisterView({super.key, required this.isDark});
+
+  @override
+  State<_CupertinoRegisterView> createState() => _CupertinoRegisterViewState();
+}
+
+class _CupertinoRegisterViewState extends State<_CupertinoRegisterView> {
+  final _qqNumberController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  final _codeController = TextEditingController();
+  
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _codeSent = false;
+  int _countdown = 0;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _qqNumberController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _codeController.dispose();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _getFullEmail() => '${_qqNumberController.text.trim()}@qq.com';
+
+  void _startCountdown() {
+    setState(() {
+      _countdown = 60;
+      _codeSent = true;
+    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        if (_countdown > 0) {
+          _countdown--;
+        } else {
+          _codeSent = false;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  Future<void> _sendCode() async {
+    if (_qqNumberController.text.trim().isEmpty || _usernameController.text.trim().isEmpty) {
+      _showCupertinoAlert('请先填写 QQ 号和用户名');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final result = await AuthService().sendRegisterCode(
+      email: _getFullEmail(),
+      username: _usernameController.text.trim(),
+    );
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      if (result['success']) {
+        _showCupertinoToast(result['message'], isSuccess: true);
+        _startCountdown();
+      } else {
+        _showCupertinoAlert(result['message']);
+      }
+    }
+  }
+
+  Future<void> _handleRegister() async {
+    if (_qqNumberController.text.trim().isEmpty ||
+        _usernameController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
+      _showCupertinoAlert('请填写完整信息');
+      return;
+    }
+    if (_passwordController.text != _confirmPasswordController.text) {
+      _showCupertinoAlert('两次密码不一致');
+      return;
+    }
+    if (_codeController.text.trim().isEmpty) {
+      _showCupertinoAlert('请输入验证码');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final result = await AuthService().register(
+      email: _getFullEmail(),
+      username: _usernameController.text.trim(),
+      password: _passwordController.text,
+      code: _codeController.text.trim(),
+    );
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      if (result['success']) {
+        _showCupertinoToast(result['message'], isSuccess: true);
+        if (AuthOverlayService().isVisible) {
+          AuthOverlayService().hide(true);
+        } else {
+          Navigator.pop(context, true);
+        }
+      } else {
+        _showCupertinoAlert(result['message']);
+      }
+    }
+  }
+
+  void _showCupertinoAlert(String message) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('提示'),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCupertinoToast(String message, {bool isSuccess = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isSuccess ? CupertinoColors.activeGreen : null,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // QQ 邮箱（QQ号 + @qq.com 后缀）
+        Container(
+          decoration: BoxDecoration(
+            color: widget.isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              // 左侧图标
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Icon(CupertinoIcons.mail_solid, color: CupertinoColors.systemGrey, size: 20),
+              ),
+              // QQ 号输入框
+              Expanded(
+                child: CupertinoTextField(
+                  controller: _qqNumberController,
+                  placeholder: '请输入QQ号',
+                  keyboardType: TextInputType.number,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  decoration: const BoxDecoration(),
+                  style: TextStyle(
+                    color: widget.isDark ? CupertinoColors.white : CupertinoColors.black,
+                    fontSize: 16,
+                  ),
+                  placeholderStyle: TextStyle(
+                    color: CupertinoColors.systemGrey,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              // @qq.com 后缀
+              Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: Text(
+                  '@qq.com',
+                  style: TextStyle(
+                    color: CupertinoColors.systemGrey,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 用户名
+        _buildCupertinoTextField(
+          controller: _usernameController,
+          placeholder: '用户名',
+          icon: CupertinoIcons.person_fill,
+          isDark: widget.isDark,
+        ),
+        const SizedBox(height: 14),
+
+        // 密码
+        _buildCupertinoTextField(
+          controller: _passwordController,
+          placeholder: '密码',
+          icon: CupertinoIcons.lock_fill,
+          obscureText: _obscurePassword,
+          isDark: widget.isDark,
+          suffix: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 0,
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            child: Icon(
+              _obscurePassword ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+              color: CupertinoColors.systemGrey,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 确认密码
+        _buildCupertinoTextField(
+          controller: _confirmPasswordController,
+          placeholder: '确认密码',
+          icon: CupertinoIcons.lock_fill,
+          obscureText: _obscureConfirmPassword,
+          isDark: widget.isDark,
+          suffix: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 0,
+            onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+            child: Icon(
+              _obscureConfirmPassword ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+              color: CupertinoColors.systemGrey,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 验证码
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: _buildCupertinoTextField(
+                controller: _codeController,
+                placeholder: '验证码',
+                icon: CupertinoIcons.checkmark_shield_fill,
+                isDark: widget.isDark,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: _buildCupertinoButton(
+                label: _codeSent ? '$_countdown秒' : '发送',
+                isLoading: false,
+                onPressed: _codeSent || _isLoading ? null : _sendCode,
+                height: 50,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // 注册按钮
+        _buildCupertinoButton(
+          label: '注册',
+          isLoading: _isLoading,
+          onPressed: _handleRegister,
+        ),
+        
+        const SizedBox(height: 16),
+        
+        Center(
+          child: Text(
+            '注册即表示您同意我们的服务条款和隐私政策',
+            style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// iOS 风格找回密码视图
+class _CupertinoForgotPasswordView extends StatefulWidget {
+  final bool isDark;
+  const _CupertinoForgotPasswordView({super.key, required this.isDark});
+
+  @override
+  State<_CupertinoForgotPasswordView> createState() => _CupertinoForgotPasswordViewState();
+}
+
+class _CupertinoForgotPasswordViewState extends State<_CupertinoForgotPasswordView> {
+  final _emailController = TextEditingController();
+  final _codeController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _codeSent = false;
+  int _countdown = 0;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _codeController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startCountdown() {
+    setState(() {
+      _countdown = 60;
+      _codeSent = true;
+    });
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        if (_countdown > 0) {
+          _countdown--;
+        } else {
+          _codeSent = false;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  Future<void> _sendCode() async {
+    if (_emailController.text.trim().isEmpty) {
+      _showCupertinoAlert('请输入邮箱');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final result = await AuthService().sendResetCode(email: _emailController.text.trim());
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      if (result['success']) {
+        _showCupertinoToast(result['message'], isSuccess: true);
+        _startCountdown();
+      } else {
+        _showCupertinoAlert(result['message']);
+      }
+    }
+  }
+
+  Future<void> _handleReset() async {
+    if (_emailController.text.trim().isEmpty ||
+        _codeController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
+      _showCupertinoAlert('请填写完整信息');
+      return;
+    }
+    if (_passwordController.text != _confirmPasswordController.text) {
+      _showCupertinoAlert('两次密码不一致');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final result = await AuthService().resetPassword(
+      email: _emailController.text.trim(),
+      code: _codeController.text.trim(),
+      newPassword: _passwordController.text,
+    );
+    setState(() => _isLoading = false);
+
+    if (mounted) {
+      if (result['success']) {
+        _showCupertinoToast(result['message'], isSuccess: true);
+        if (AuthOverlayService().isVisible) {
+          AuthOverlayService().hide(true);
+        } else {
+          Navigator.pop(context, true);
+        }
+      } else {
+        _showCupertinoAlert(result['message']);
+      }
+    }
+  }
+
+  void _showCupertinoAlert(String message) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('提示'),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCupertinoToast(String message, {bool isSuccess = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isSuccess ? CupertinoColors.activeGreen : null,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 提示信息
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: CupertinoColors.activeBlue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Icon(CupertinoIcons.info_circle_fill, color: CupertinoColors.activeBlue, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '我们将向您的邮箱发送验证码',
+                  style: TextStyle(
+                    color: CupertinoColors.activeBlue,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // 邮箱
+        _buildCupertinoTextField(
+          controller: _emailController,
+          placeholder: '注册邮箱',
+          icon: CupertinoIcons.mail_solid,
+          isDark: widget.isDark,
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 14),
+
+        // 验证码
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: _buildCupertinoTextField(
+                controller: _codeController,
+                placeholder: '验证码',
+                icon: CupertinoIcons.checkmark_shield_fill,
+                isDark: widget.isDark,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: _buildCupertinoButton(
+                label: _codeSent ? '$_countdown秒' : '发送',
+                isLoading: false,
+                onPressed: _codeSent || _isLoading ? null : _sendCode,
+                height: 50,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // 新密码
+        _buildCupertinoTextField(
+          controller: _passwordController,
+          placeholder: '新密码',
+          icon: CupertinoIcons.lock_fill,
+          obscureText: _obscurePassword,
+          isDark: widget.isDark,
+          suffix: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 0,
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            child: Icon(
+              _obscurePassword ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+              color: CupertinoColors.systemGrey,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 确认新密码
+        _buildCupertinoTextField(
+          controller: _confirmPasswordController,
+          placeholder: '确认新密码',
+          icon: CupertinoIcons.lock_fill,
+          obscureText: _obscureConfirmPassword,
+          isDark: widget.isDark,
+          suffix: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 0,
+            onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+            child: Icon(
+              _obscureConfirmPassword ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+              color: CupertinoColors.systemGrey,
+              size: 20,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // 重置按钮
+        _buildCupertinoButton(
+          label: '重置密码',
+          isLoading: _isLoading,
+          onPressed: _handleReset,
+        ),
+      ],
+    );
+  }
+}
+
+// ============ iOS Cupertino 辅助组件 ============
+
+/// iOS 风格文本输入框
+Widget _buildCupertinoTextField({
+  required TextEditingController controller,
+  required String placeholder,
+  required IconData icon,
+  required bool isDark,
+  bool obscureText = false,
+  Widget? suffix,
+  TextInputType? keyboardType,
+}) {
+  return Container(
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: CupertinoTextField(
+      controller: controller,
+      placeholder: placeholder,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      prefix: Padding(
+        padding: const EdgeInsets.only(left: 12),
+        child: Icon(icon, color: CupertinoColors.systemGrey, size: 20),
+      ),
+      suffix: suffix != null
+          ? Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: suffix,
+            )
+          : null,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      style: TextStyle(
+        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+        fontSize: 16,
+      ),
+      placeholderStyle: TextStyle(
+        color: CupertinoColors.systemGrey,
+        fontSize: 16,
+      ),
+    ),
+  );
+}
+
+/// iOS 风格简洁按钮
+Widget _buildCupertinoButton({
+  required String label,
+  required bool isLoading,
+  required VoidCallback? onPressed,
+  double? height,
+}) {
+  return SizedBox(
+    height: height ?? 50,
+    width: double.infinity,
+    child: CupertinoButton.filled(
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(10),
+      onPressed: onPressed,
+      child: isLoading
+          ? const CupertinoActivityIndicator(color: CupertinoColors.white)
+          : Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
     ),
   );
 }

@@ -1,14 +1,9 @@
-import 'dart:ui';
-import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cyrene_music/models/toplist.dart';
 import 'package:cyrene_music/models/track.dart';
-import 'package:cyrene_music/pages/auth/auth_page.dart';
-import 'package:cyrene_music/services/auth_service.dart';
 import 'package:cyrene_music/services/music_service.dart';
 import 'package:cyrene_music/services/play_history_service.dart';
 import 'package:cyrene_music/services/player_service.dart';
-import 'package:cyrene_music/widgets/track_list_tile.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
 import '../../utils/theme_manager.dart';

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import '../services/local_library_service.dart';
@@ -144,11 +145,16 @@ class _LocalPageState extends State<LocalPage> {
     if (mounted) setState(() {});
   }
 
+  bool get _isCupertino => _themeManager.isCupertinoFramework;
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     if (_themeManager.isFluentFramework) {
       return _buildFluentPage(context);
+    }
+    if (_isCupertino) {
+      return _buildCupertinoPage(context);
     }
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -291,6 +297,199 @@ class _LocalPageState extends State<LocalPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// iOS Cupertino 风格页面
+  Widget _buildCupertinoPage(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tracks = _local.tracks;
+    return Material(
+      type: MaterialType.transparency,
+      child: CupertinoPageScaffold(
+        backgroundColor: isDark ? const Color(0xFF000000) : CupertinoColors.systemGroupedBackground,
+        navigationBar: CupertinoNavigationBar(
+          middle: const Text('本地'),
+          backgroundColor: (isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white).withOpacity(0.9),
+          border: null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                child: const Icon(CupertinoIcons.music_note, size: 22),
+                onPressed: () async {
+                  await _local.pickSingleSong();
+                },
+              ),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                child: const Icon(CupertinoIcons.folder, size: 22),
+                onPressed: () async {
+                  await _local.pickAndScanFolder();
+                },
+              ),
+              if (tracks.isNotEmpty)
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Icon(CupertinoIcons.trash, size: 22),
+                  onPressed: () {
+                    _local.clear();
+                  },
+                ),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: tracks.isEmpty
+              ? _buildCupertinoEmpty(isDark)
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: tracks.length + 1, // +1 for bottom padding
+                  itemBuilder: (context, index) {
+                    if (index == tracks.length) {
+                      return SizedBox(height: MediaQuery.of(context).padding.bottom + 80);
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildCupertinoTrackTile(tracks[index], isDark),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoEmpty(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            CupertinoIcons.folder,
+            size: 80,
+            color: CupertinoColors.systemGrey.withOpacity(0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '未选择本地音乐',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              '可选择单首歌曲或扫描整个文件夹（支持 mp3/wav/flac 等）',
+              style: TextStyle(
+                fontSize: 14,
+                color: CupertinoColors.systemGrey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCupertinoTrackTile(Track track, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: () async {
+          await PlayerService().playTrack(track);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // 封面
+              _buildCupertinoCover(track, isDark),
+              const SizedBox(width: 12),
+              // 信息
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '本地 • ${_extOf(track.id)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // 播放按钮
+              CupertinoButton(
+                padding: const EdgeInsets.all(8),
+                minSize: 0,
+                onPressed: () async {
+                  await PlayerService().playTrack(track);
+                },
+                child: Icon(CupertinoIcons.play_fill, size: 22, color: CupertinoColors.activeBlue),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoCover(Track track, bool isDark) {
+    if (track.picUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: CachedNetworkImage(
+          imageUrl: track.picUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => Container(
+            width: 48,
+            height: 48,
+            color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+            child: const CupertinoActivityIndicator(radius: 10),
+          ),
+          errorWidget: (context, url, error) => Container(
+            width: 48,
+            height: 48,
+            color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+            child: Icon(CupertinoIcons.music_note, color: CupertinoColors.systemGrey),
+          ),
+        ),
+      );
+    }
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Icon(CupertinoIcons.music_note, color: CupertinoColors.systemGrey),
     );
   }
 }

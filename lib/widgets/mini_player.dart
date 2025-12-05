@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -27,9 +28,66 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
   Animation<double>? _breathingScale;
   bool _breathingActive = false;
 
+  bool get _isCupertino => ThemeManager().isCupertinoFramework;
+
   @override
   void initState() {
     super.initState();
+  }
+
+  /// iOS Cupertino 风格的控制按钮
+  Widget _buildCenterControlsCupertino(PlayerService player, BuildContext context, {bool hideSkip = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    const double skipIconSize = 24;
+    const double playIconSize = 28;
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!hideSkip)
+          CupertinoButton(
+            padding: const EdgeInsets.all(8),
+            minSize: 0,
+            onPressed: player.hasPrevious ? () => player.playPrevious() : null,
+            child: Icon(
+              CupertinoIcons.backward_fill,
+              size: skipIconSize,
+              color: player.hasPrevious 
+                  ? (isDark ? CupertinoColors.white : CupertinoColors.black)
+                  : CupertinoColors.systemGrey,
+            ),
+          ),
+        if (player.isLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8.0),
+            child: CupertinoActivityIndicator(radius: 14),
+          )
+        else
+          CupertinoButton(
+            padding: const EdgeInsets.all(8),
+            minSize: 0,
+            onPressed: () => player.togglePlayPause(),
+            child: Icon(
+              player.isPlaying ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
+              size: playIconSize,
+              color: CupertinoColors.activeBlue,
+            ),
+          ),
+        if (!hideSkip)
+          CupertinoButton(
+            padding: const EdgeInsets.all(8),
+            minSize: 0,
+            onPressed: player.hasNext ? () => player.playNext() : null,
+            child: Icon(
+              CupertinoIcons.forward_fill,
+              size: skipIconSize,
+              color: player.hasNext 
+                  ? (isDark ? CupertinoColors.white : CupertinoColors.black)
+                  : CupertinoColors.systemGrey,
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildCenterControlsFluent(PlayerService player, BuildContext context, {bool hideSkip = false}) {
@@ -432,14 +490,22 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            ThemeManager().isFluentFramework
-                                                ? _buildCenterControlsFluent(player, context, hideSkip: true)
-                                                : _buildCenterControls(player, colorScheme, hideSkip: true),
-                                            IconButton(
-                                              icon: Icon(Icons.queue_music_rounded, color: colorScheme.onSurface),
-                                              tooltip: '播放列表',
-                                              onPressed: () => _showQueueSheet(context),
-                                            ),
+                                            _buildAdaptiveControls(player, context, colorScheme, hideSkip: true),
+                                            _isCupertino
+                                                ? CupertinoButton(
+                                                    padding: const EdgeInsets.all(8),
+                                                    minSize: 0,
+                                                    onPressed: () => _showQueueSheet(context),
+                                                    child: Icon(
+                                                      CupertinoIcons.music_note_list,
+                                                      color: CupertinoColors.activeBlue,
+                                                    ),
+                                                  )
+                                                : IconButton(
+                                                    icon: Icon(Icons.queue_music_rounded, color: colorScheme.onSurface),
+                                                    tooltip: '播放列表',
+                                                    onPressed: () => _showQueueSheet(context),
+                                                  ),
                                           ],
                                         ),
                                       ),
@@ -462,9 +528,7 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                     Expanded(
                                       flex: 4,
                                       child: Center(
-                                      child: ThemeManager().isFluentFramework
-                                          ? _buildCenterControlsFluent(player, context, hideSkip: true)
-                                          : _buildCenterControls(player, colorScheme, hideSkip: true),
+                                      child: _buildAdaptiveControls(player, context, colorScheme, hideSkip: true),
                                     ),
                                     ),
                                     Expanded(
@@ -551,15 +615,11 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                 ),
                                 Align(
                                   alignment: Alignment.center,
-                                  child: ThemeManager().isFluentFramework
-                                      ? _buildCenterControlsFluent(player, context)
-                                      : _buildCenterControls(player, colorScheme),
+                                  child: _buildAdaptiveControls(player, context, colorScheme),
                                 ),
                                 Align(
                                   alignment: Alignment.centerRight,
-                                  child: ThemeManager().isFluentFramework
-                                      ? _buildRightPanelFluent(player, context)
-                                      : _buildRightPanel(player, colorScheme, context),
+                                  child: _buildAdaptiveRightPanel(player, context, colorScheme),
                                 ),
                               ],
                             );
@@ -603,14 +663,22 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        ThemeManager().isFluentFramework
-                                            ? _buildCenterControlsFluent(player, context, hideSkip: true)
-                                            : _buildCenterControls(player, colorScheme, hideSkip: true),
-                                        IconButton(
-                                          icon: Icon(Icons.queue_music_rounded, color: colorScheme.onSurface),
-                                          tooltip: '播放列表',
-                                          onPressed: () => _showQueueSheet(context),
-                                        ),
+                                        _buildAdaptiveControls(player, context, colorScheme, hideSkip: true),
+                                        _isCupertino
+                                            ? CupertinoButton(
+                                                padding: const EdgeInsets.all(8),
+                                                minSize: 0,
+                                                onPressed: () => _showQueueSheet(context),
+                                                child: Icon(
+                                                  CupertinoIcons.music_note_list,
+                                                  color: CupertinoColors.activeBlue,
+                                                ),
+                                              )
+                                            : IconButton(
+                                                icon: Icon(Icons.queue_music_rounded, color: colorScheme.onSurface),
+                                                tooltip: '播放列表',
+                                                onPressed: () => _showQueueSheet(context),
+                                              ),
                                       ],
                                     ),
                                   ),
@@ -633,9 +701,7 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                                 Expanded(
                                   flex: 4,
                                   child: Center(
-                                    child: ThemeManager().isFluentFramework
-                                        ? _buildCenterControlsFluent(player, context, hideSkip: true)
-                                        : _buildCenterControls(player, colorScheme, hideSkip: true),
+                                    child: _buildAdaptiveControls(player, context, colorScheme, hideSkip: true),
                                   ),
                                 ),
                                 Expanded(
@@ -687,11 +753,11 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
                             ),
                             Align(
                               alignment: Alignment.center,
-                              child: _buildCenterControls(player, colorScheme),
+                              child: _buildAdaptiveControls(player, context, colorScheme),
                             ),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: _buildRightPanel(player, colorScheme, context),
+                              child: _buildAdaptiveRightPanel(player, context, colorScheme),
                             ),
                           ],
                         );
@@ -790,6 +856,17 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
         value: progress,
       );
     }
+    if (_isCupertino) {
+      return Container(
+        height: 2,
+        child: LinearProgressIndicator(
+          value: progress,
+          minHeight: 2,
+          backgroundColor: CupertinoColors.systemGrey.withOpacity(0.2),
+          valueColor: const AlwaysStoppedAnimation<Color>(CupertinoColors.activeBlue),
+        ),
+      );
+    }
     return LinearProgressIndicator(
       value: progress,
       minHeight: 2,
@@ -862,6 +939,7 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     final name = song?.name ?? track?.name ?? '未知歌曲';
     final artist = song?.arName ?? track?.artists ?? '未知艺术家';
     final bool isFluent = ThemeManager().isFluentFramework;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Fluent UI 主题下使用微软雅黑字体
     if (isFluent) {
@@ -896,6 +974,36 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
       );
     }
 
+    // iOS Cupertino 风格
+    if (_isCupertino) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            artist,
+            style: TextStyle(
+              fontSize: 13,
+              color: CupertinoColors.systemGrey,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      );
+    }
+
     // Material Design 主题保持原样
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -922,7 +1030,18 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     );
   }
 
-  /// 中间控制（上一首/播放暂停/下一首）
+  /// 自适应控制按钮（根据主题选择）
+  Widget _buildAdaptiveControls(PlayerService player, BuildContext context, ColorScheme colorScheme, {bool hideSkip = false}) {
+    if (ThemeManager().isFluentFramework) {
+      return _buildCenterControlsFluent(player, context, hideSkip: hideSkip);
+    }
+    if (_isCupertino) {
+      return _buildCenterControlsCupertino(player, context, hideSkip: hideSkip);
+    }
+    return _buildCenterControls(player, colorScheme, hideSkip: hideSkip);
+  }
+
+  /// 中间控制（上一首/播放暂停/下一首）- Material 风格
   Widget _buildCenterControls(PlayerService player, ColorScheme colorScheme, {bool hideSkip = false}) {
     const double skipIconSize = 24;
     const double playIconSize = 28;
@@ -974,7 +1093,75 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
     );
   }
 
-  /// 右侧面板（时长 + 音量 + 列表）
+  /// 自适应右侧面板
+  Widget _buildAdaptiveRightPanel(PlayerService player, BuildContext context, ColorScheme colorScheme) {
+    if (ThemeManager().isFluentFramework) {
+      return _buildRightPanelFluent(player, context);
+    }
+    if (_isCupertino) {
+      return _buildRightPanelCupertino(player, context);
+    }
+    return _buildRightPanel(player, colorScheme, context);
+  }
+
+  /// iOS Cupertino 风格右侧面板
+  Widget _buildRightPanelCupertino(PlayerService player, BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _formatDuration(player.position),
+          style: TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+        Text(
+          ' / ',
+          style: TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+        Text(
+          _formatDuration(player.duration),
+          style: TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+        const SizedBox(width: 12),
+        CupertinoButton(
+          padding: const EdgeInsets.all(8),
+          minSize: 0,
+          onPressed: () => _showVolumeDialog(context, player),
+          child: Icon(
+            _volumeIconCupertino(player.volume),
+            color: CupertinoColors.activeBlue,
+            size: 22,
+          ),
+        ),
+        CupertinoButton(
+          padding: const EdgeInsets.all(8),
+          minSize: 0,
+          onPressed: () => _showQueueSheet(context),
+          child: Icon(
+            CupertinoIcons.music_note_list,
+            color: CupertinoColors.activeBlue,
+            size: 22,
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _volumeIconCupertino(double volume) {
+    if (volume == 0) return CupertinoIcons.volume_off;
+    if (volume < 0.5) return CupertinoIcons.volume_down;
+    return CupertinoIcons.volume_up;
+  }
+
+  /// 右侧面板（时长 + 音量 + 列表）- Material 风格
   Widget _buildRightPanel(PlayerService player, ColorScheme colorScheme, BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1056,6 +1243,78 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
       );
       return;
     }
+    
+    // iOS Cupertino 风格
+    if (_isCupertino) {
+      await showCupertinoModalPopup(
+        context: context,
+        builder: (context) {
+          return Material(
+            type: MaterialType.transparency,
+            child: Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF1C1C1E)
+                    : CupertinoColors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: StatefulBuilder(
+                  builder: (context, setLocal) {
+                    return Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          width: 36,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.systemGrey.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(2.5),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          '音量',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: CupertinoSlider(
+                            value: temp,
+                            min: 0.0,
+                            max: 1.0,
+                            onChanged: (v) {
+                              setLocal(() => temp = v);
+                              player.setVolume(v);
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${(temp * 100).toInt()}%',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+    
     await showDialog(
       context: context,
       builder: (context) {
@@ -1169,6 +1428,150 @@ class _MiniPlayerState extends State<MiniPlayer> with SingleTickerProviderStateM
       );
       return;
     }
+    
+    // iOS Cupertino 风格
+    if (_isCupertino) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      await showCupertinoModalPopup(
+        context: context,
+        builder: (context) {
+          return Material(
+            type: MaterialType.transparency,
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      width: 36,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2.5),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        hasQueue ? '播放队列' : '播放历史',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: displayList.isEmpty
+                          ? Center(
+                              child: Text(
+                                '播放列表为空',
+                                style: TextStyle(color: CupertinoColors.systemGrey),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: displayList.length,
+                              itemBuilder: (context, i) {
+                                final Track t = displayList[i] as Track;
+                                final isCurrent = currentTrack != null &&
+                                    t.id.toString() == currentTrack.id.toString() &&
+                                    t.source == currentTrack.source;
+
+                                return CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () {
+                                    final coverProvider = PlaylistQueueService().getCoverProvider(t);
+                                    PlayerService().playTrack(t, coverProvider: coverProvider);
+                                    Navigator.pop(context);
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isCurrent
+                                          ? CupertinoColors.activeBlue.withOpacity(0.1)
+                                          : null,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(6),
+                                          child: CachedNetworkImage(
+                                            imageUrl: t.picUrl,
+                                            imageBuilder: (context, imageProvider) {
+                                              PlaylistQueueService().updateCoverProvider(t, imageProvider);
+                                              return Image(image: imageProvider, width: 44, height: 44, fit: BoxFit.cover);
+                                            },
+                                            placeholder: (context, url) => Container(
+                                              width: 44,
+                                              height: 44,
+                                              color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+                                              child: const CupertinoActivityIndicator(radius: 10),
+                                            ),
+                                            errorWidget: (context, url, error) => Container(
+                                              width: 44,
+                                              height: 44,
+                                              color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+                                              child: Icon(CupertinoIcons.music_note, color: CupertinoColors.systemGrey),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                t.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  color: isCurrent
+                                                      ? CupertinoColors.activeBlue
+                                                      : (isDark ? CupertinoColors.white : CupertinoColors.black),
+                                                ),
+                                              ),
+                                              Text(
+                                                t.artists,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: CupertinoColors.systemGrey,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isCurrent)
+                                          Icon(
+                                            CupertinoIcons.play_fill,
+                                            color: CupertinoColors.activeBlue,
+                                            size: 18,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+    
     await showModalBottomSheet(
       context: context,
       showDragHandle: true,

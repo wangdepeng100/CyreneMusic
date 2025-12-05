@@ -11,7 +11,7 @@ import '../pages/home_page.dart';
 import '../pages/discover_page.dart';
 import '../pages/history_page.dart';
 import '../pages/local_page.dart';
-import '../pages/my_page.dart';
+import '../pages/my_page/my_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/developer_page.dart';
 import '../pages/auth/auth_page.dart';

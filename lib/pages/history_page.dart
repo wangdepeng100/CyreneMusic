@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import '../services/play_history_service.dart';
@@ -44,6 +45,8 @@ class _HistoryPageState extends State<HistoryPage> with AutomaticKeepAliveClient
     }
   }
 
+  bool get _isCupertino => _themeManager.isCupertinoFramework;
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -52,6 +55,10 @@ class _HistoryPageState extends State<HistoryPage> with AutomaticKeepAliveClient
 
     if (_themeManager.isFluentFramework) {
       return _buildFluentPage(context, history);
+    }
+
+    if (_isCupertino) {
+      return _buildCupertinoPage(context, history);
     }
 
     return Scaffold(
@@ -165,6 +172,306 @@ class _HistoryPageState extends State<HistoryPage> with AutomaticKeepAliveClient
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemCount: history.length,
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// iOS Cupertino 风格页面
+  Widget _buildCupertinoPage(BuildContext context, List<PlayHistoryItem> history) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      type: MaterialType.transparency,
+      child: CupertinoPageScaffold(
+        backgroundColor: isDark ? const Color(0xFF000000) : CupertinoColors.systemGroupedBackground,
+        navigationBar: CupertinoNavigationBar(
+          middle: const Text('播放历史'),
+          backgroundColor: (isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white).withOpacity(0.9),
+          border: null,
+          trailing: history.isNotEmpty
+              ? CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Icon(CupertinoIcons.trash, size: 22),
+                  onPressed: _showCupertinoClearConfirmDialog,
+                )
+              : null,
+        ),
+        child: SafeArea(
+          child: history.isEmpty
+              ? _buildCupertinoEmptyState(isDark)
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    // 统计卡片
+                    _buildCupertinoStatisticsCard(isDark),
+                    const SizedBox(height: 16),
+                    // 历史记录列表
+                    ...history.asMap().entries.map((entry) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _buildCupertinoHistoryItem(entry.value, entry.key, isDark),
+                      );
+                    }),
+                    // 底部留白给迷你播放器
+                    SizedBox(height: MediaQuery.of(context).padding.bottom + 80),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoStatisticsCard(bool isDark) {
+    final todayCount = _historyService.getTodayPlayCount();
+    final weekCount = _historyService.getWeekPlayCount();
+    final totalCount = _historyService.history.length;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(CupertinoIcons.chart_bar_fill, size: 18, color: CupertinoColors.activeBlue),
+              const SizedBox(width: 8),
+              Text(
+                '播放统计',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildCupertinoStatItem('今日', todayCount, isDark),
+              _buildCupertinoStatItem('本周', weekCount, isDark),
+              _buildCupertinoStatItem('总计', totalCount, isDark),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCupertinoStatItem(String label, int count, bool isDark) {
+    return Column(
+      children: [
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: CupertinoColors.activeBlue,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCupertinoHistoryItem(PlayHistoryItem item, int index, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: () {
+          PlayerService().playTrack(item.toTrack());
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // 封面
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: CachedNetworkImage(
+                      imageUrl: item.picUrl,
+                      width: 50,
+                      height: 50,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        width: 50,
+                        height: 50,
+                        color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+                        child: const CupertinoActivityIndicator(radius: 10),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        width: 50,
+                        height: 50,
+                        color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+                        child: Icon(CupertinoIcons.music_note, color: CupertinoColors.systemGrey),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.activeBlue,
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4)),
+                      ),
+                      child: Text(
+                        '#${index + 1}',
+                        style: const TextStyle(
+                          color: CupertinoColors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              // 信息
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${item.artists} • ${item.album}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          _getSourceIcon(item.source),
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatTime(item.playedAt),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // 操作按钮
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(8),
+                    minSize: 0,
+                    onPressed: () {
+                      PlayerService().playTrack(item.toTrack());
+                    },
+                    child: Icon(CupertinoIcons.play_fill, size: 20, color: CupertinoColors.activeBlue),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(8),
+                    minSize: 0,
+                    onPressed: () {
+                      _historyService.removeHistoryItem(item);
+                    },
+                    child: Icon(CupertinoIcons.trash, size: 18, color: CupertinoColors.systemGrey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoEmptyState(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            CupertinoIcons.time,
+            size: 80,
+            color: CupertinoColors.systemGrey.withOpacity(0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '暂无播放历史',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '播放歌曲后会自动记录',
+            style: TextStyle(
+              fontSize: 14,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCupertinoClearConfirmDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('清空播放历史'),
+        content: const Text('确定要清空所有播放历史吗？此操作无法撤销。'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            child: const Text('清空'),
+            onPressed: () {
+              _historyService.clearHistory();
+              Navigator.pop(context);
+            },
           ),
         ],
       ),
