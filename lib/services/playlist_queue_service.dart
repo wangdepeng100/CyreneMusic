@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ImageProvider;
 import '../models/track.dart';
@@ -22,6 +23,11 @@ class PlaylistQueueService extends ChangeNotifier {
   int _currentIndex = -1;
   QueueSource _source = QueueSource.none;
   final Map<String, ImageProvider> _coverProviders = {};
+  
+  // 随机播放相关
+  List<int> _shuffledIndices = [];  // 洗牌后的索引顺序
+  int _shufflePosition = -1;        // 当前在洗牌序列中的位置
+  final Random _random = Random();
 
   List<Track> get queue => _queue;
   int get currentIndex => _currentIndex;
@@ -59,6 +65,10 @@ class PlaylistQueueService extends ChangeNotifier {
     _coverProviders
       ..clear()
       ..addAll(coverProviders ?? {});
+    
+    // 重置洗牌序列，下次随机播放时会重新生成
+    _shuffledIndices.clear();
+    _shufflePosition = -1;
     
     print('🎵 [PlaylistQueueService] 设置播放队列: ${_queue.length} 首歌曲, 来源: ${source.name}, 当前索引: $startIndex');
     notifyListeners();
@@ -121,17 +131,78 @@ class PlaylistQueueService extends ChangeNotifier {
   /// 检查是否有上一首
   bool get hasPrevious => _queue.isNotEmpty && _currentIndex > 0;
 
+  /// 生成洗牌序列（Fisher-Yates 算法）
+  void _generateShuffledIndices() {
+    _shuffledIndices = List.generate(_queue.length, (i) => i);
+    
+    // Fisher-Yates 洗牌算法
+    for (int i = _shuffledIndices.length - 1; i > 0; i--) {
+      final j = _random.nextInt(i + 1);
+      final temp = _shuffledIndices[i];
+      _shuffledIndices[i] = _shuffledIndices[j];
+      _shuffledIndices[j] = temp;
+    }
+    
+    // 确保当前歌曲不是洗牌后的第一首（避免连续播放同一首）
+    if (_currentIndex >= 0 && _shuffledIndices.isNotEmpty && _shuffledIndices[0] == _currentIndex) {
+      // 将当前歌曲移到后面
+      final swapIndex = _random.nextInt(_shuffledIndices.length - 1) + 1;
+      final temp = _shuffledIndices[0];
+      _shuffledIndices[0] = _shuffledIndices[swapIndex];
+      _shuffledIndices[swapIndex] = temp;
+    }
+    
+    _shufflePosition = -1;
+    print('🔀 [PlaylistQueueService] 生成新的洗牌序列，共 ${_shuffledIndices.length} 首');
+  }
+
   /// 获取随机歌曲（用于随机播放）
+  /// 使用洗牌算法确保每首歌只播放一次，直到全部播放完毕
   Track? getRandomTrack() {
     if (_queue.isEmpty) {
       return null;
     }
 
-    final random = DateTime.now().microsecondsSinceEpoch % _queue.length;
-    _currentIndex = random;
-    print('🔀 [PlaylistQueueService] 随机播放: ${_queue[_currentIndex].name}');
+    // 如果洗牌序列为空或已播放完毕，重新生成
+    if (_shuffledIndices.isEmpty || _shufflePosition >= _shuffledIndices.length - 1) {
+      _generateShuffledIndices();
+    }
+    
+    // 移动到下一个位置
+    _shufflePosition++;
+    _currentIndex = _shuffledIndices[_shufflePosition];
+    
+    final track = _queue[_currentIndex];
+    print('🔀 [PlaylistQueueService] 随机播放 (${_shufflePosition + 1}/${_shuffledIndices.length}): ${track.name}');
     notifyListeners();
-    return _queue[_currentIndex];
+    return track;
+  }
+  
+  /// 获取随机播放的上一首
+  Track? getRandomPrevious() {
+    if (_queue.isEmpty || _shuffledIndices.isEmpty) {
+      return null;
+    }
+    
+    if (_shufflePosition <= 0) {
+      print('⚠️ [PlaylistQueueService] 随机播放已经是第一首');
+      return null;
+    }
+    
+    _shufflePosition--;
+    _currentIndex = _shuffledIndices[_shufflePosition];
+    
+    final track = _queue[_currentIndex];
+    print('🔀 [PlaylistQueueService] 随机播放上一首 (${_shufflePosition + 1}/${_shuffledIndices.length}): ${track.name}');
+    notifyListeners();
+    return track;
+  }
+  
+  /// 重置洗牌序列（当队列变化或切换播放模式时调用）
+  void resetShuffle() {
+    _shuffledIndices.clear();
+    _shufflePosition = -1;
+    print('🔀 [PlaylistQueueService] 重置洗牌序列');
   }
 
   /// 清空播放队列
@@ -140,6 +211,8 @@ class PlaylistQueueService extends ChangeNotifier {
     _currentIndex = -1;
     _source = QueueSource.none;
     _coverProviders.clear();
+    _shuffledIndices.clear();
+    _shufflePosition = -1;
     print('🗑️ [PlaylistQueueService] 清空播放队列');
     notifyListeners();
   }

@@ -1223,9 +1223,19 @@ class PlayerService extends ChangeNotifier {
     try {
       print('⏮️ [PlayerService] 尝试播放上一首...');
       
+      final mode = PlaybackModeService().currentMode;
+      
       // 优先使用播放队列
       if (PlaylistQueueService().hasQueue) {
-        final previousTrack = PlaylistQueueService().getPrevious();
+        Track? previousTrack;
+        
+        // 随机模式下使用洗牌序列的上一首
+        if (mode == PlaybackMode.shuffle) {
+          previousTrack = PlaylistQueueService().getRandomPrevious();
+        } else {
+          previousTrack = PlaylistQueueService().getPrevious();
+        }
+        
         if (previousTrack != null) {
           print('✅ [PlayerService] 从播放队列获取上一首: ${previousTrack.name}');
           final coverProvider = PlaylistQueueService().getCoverProvider(previousTrack);

@@ -22,6 +22,7 @@ class _DesktopLyricSettingsState extends State<DesktopLyricSettings> {
   late int _strokeWidth;
   late bool _isDraggable;
   late bool _isMouseTransparent;
+  late bool _isVertical;
 
   @override
   void initState() {
@@ -38,6 +39,7 @@ class _DesktopLyricSettingsState extends State<DesktopLyricSettings> {
       _strokeWidth = config['strokeWidth'] as int;
       _isDraggable = config['isDraggable'] as bool;
       _isMouseTransparent = config['isMouseTransparent'] as bool;
+      _isVertical = config['isVertical'] as bool;
     });
   }
 
@@ -236,6 +238,19 @@ class _DesktopLyricSettingsState extends State<DesktopLyricSettings> {
               _desktopLyricService.setMouseTransparent(value);
             },
           ),
+          // 纵向排列
+          FluentSwitchTile(
+            icon: fluent_ui.FluentIcons.align_vertical_center,
+            title: '纵向排列',
+            subtitle: '歌词竖向显示（从上到下）',
+            value: _isVertical,
+            onChanged: (value) {
+              setState(() {
+                _isVertical = value;
+              });
+              _desktopLyricService.setVertical(value);
+            },
+          ),
           // 测试按钮
           FluentSettingsTile(
             icon: fluent_ui.FluentIcons.play,
@@ -373,6 +388,20 @@ class _DesktopLyricSettingsState extends State<DesktopLyricSettings> {
                   _isMouseTransparent = value;
                 });
                 _desktopLyricService.setMouseTransparent(value);
+              },
+            ),
+            
+            // 纵向排列
+            SwitchListTile(
+              secondary: const Icon(Icons.swap_vert),
+              title: const Text('纵向排列'),
+              subtitle: const Text('歌词竖向显示（从上到下）'),
+              value: _isVertical,
+              onChanged: (value) {
+                setState(() {
+                  _isVertical = value;
+                });
+                _desktopLyricService.setVertical(value);
               },
             ),
 

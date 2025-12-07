@@ -313,6 +313,25 @@ void DesktopLyricPlugin::HandleMethodCall(
     bool show = lyric_window_->GetShowTranslation();
     result->Success(flutter::EncodableValue(show));
     
+  } else if (method_name == "setVertical") {
+    // Set vertical layout mode
+    const auto* arguments = std::get_if<flutter::EncodableMap>(method_call.arguments());
+    if (arguments) {
+      auto vertical_it = arguments->find(flutter::EncodableValue("vertical"));
+      if (vertical_it != arguments->end()) {
+        bool vertical = std::get<bool>(vertical_it->second);
+        lyric_window_->SetVertical(vertical);
+        result->Success(flutter::EncodableValue(true));
+        return;
+      }
+    }
+    result->Error("INVALID_ARGUMENT", "Missing 'vertical' argument");
+    
+  } else if (method_name == "getVertical") {
+    // Get vertical layout mode
+    bool vertical = lyric_window_->GetVertical();
+    result->Success(flutter::EncodableValue(vertical));
+    
   } else {
     result->NotImplemented();
   }

@@ -1,6 +1,7 @@
 #include "desktop_lyric_window.h"
 #include <dwmapi.h>
 #include <gdiplus.h>
+#include <windowsx.h>
 #include <algorithm>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -32,6 +33,194 @@ void ShutdownGdiPlus() {
     Gdiplus::GdiplusShutdown(gdiplusToken);
     gdiplusToken = 0;
   }
+}
+
+// Check if a character is CJK (Chinese, Japanese, Korean)
+bool IsCJKCharacter(wchar_t ch) {
+  // CJK Unified Ideographs
+  if (ch >= 0x4E00 && ch <= 0x9FFF) return true;
+  // CJK Unified Ideographs Extension A
+  if (ch >= 0x3400 && ch <= 0x4DBF) return true;
+  // Hiragana
+  if (ch >= 0x3040 && ch <= 0x309F) return true;
+  // Katakana
+  if (ch >= 0x30A0 && ch <= 0x30FF) return true;
+  // Full-width characters
+  if (ch >= 0xFF00 && ch <= 0xFFEF) return true;
+  // CJK Symbols and Punctuation
+  if (ch >= 0x3000 && ch <= 0x303F) return true;
+  // Hangul (Korean)
+  if (ch >= 0xAC00 && ch <= 0xD7AF) return true;
+  // CJK Compatibility Ideographs
+  if (ch >= 0xF900 && ch <= 0xFAFF) return true;
+  return false;
+}
+
+// Draw a single character with optional rotation (for CJK in vertical mode)
+void DrawCharWithRotation(Gdiplus::Graphics& graphics, wchar_t ch, 
+                          Gdiplus::FontFamily* fontFamily, int fontSize, int strokeWidth,
+                          DWORD textColor, DWORD strokeColor,
+                          float x, float y, float charWidth, float charHeight,
+                          bool rotateCJK) {
+  wchar_t str[2] = { ch, 0 };
+  
+  bool isCJK = IsCJKCharacter(ch);
+  bool needRotate = rotateCJK && isCJK;
+  
+  Gdiplus::GraphicsState state = graphics.Save();
+  
+  if (needRotate) {
+    // Rotate CJK character -90° (counter-clockwise) around its center
+    // This makes CJK characters appear upright in vertical mode
+    float centerX = x + charWidth / 2;
+    float centerY = y + charHeight / 2;
+    graphics.TranslateTransform(centerX, centerY);
+    graphics.RotateTransform(-90.0f);
+    graphics.TranslateTransform(-centerX, -centerY);
+  }
+  
+  Gdiplus::StringFormat format;
+  format.SetAlignment(Gdiplus::StringAlignmentCenter);
+  format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+  
+  Gdiplus::RectF charRect(x, y, charWidth, charHeight);
+  
+  if (strokeWidth > 0) {
+    Gdiplus::GraphicsPath path;
+    path.AddString(str, -1, fontFamily, Gdiplus::FontStyleBold, 
+                   static_cast<Gdiplus::REAL>(fontSize), charRect, &format);
+    
+    Gdiplus::Pen strokePen(Gdiplus::Color(
+        (strokeColor >> 24) & 0xFF, (strokeColor >> 16) & 0xFF,
+        (strokeColor >> 8) & 0xFF, strokeColor & 0xFF
+    ), static_cast<Gdiplus::REAL>(strokeWidth));
+    strokePen.SetLineJoin(Gdiplus::LineJoinRound);
+    graphics.DrawPath(&strokePen, &path);
+    
+    Gdiplus::SolidBrush fillBrush(Gdiplus::Color(
+        (textColor >> 24) & 0xFF, (textColor >> 16) & 0xFF,
+        (textColor >> 8) & 0xFF, textColor & 0xFF
+    ));
+    graphics.FillPath(&fillBrush, &path);
+  } else {
+    Gdiplus::Font font(fontFamily, static_cast<Gdiplus::REAL>(fontSize), 
+                       Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+    Gdiplus::SolidBrush textBrush(Gdiplus::Color(
+        (textColor >> 24) & 0xFF, (textColor >> 16) & 0xFF,
+        (textColor >> 8) & 0xFF, textColor & 0xFF
+    ));
+    graphics.DrawString(str, -1, &font, charRect, &format, &textBrush);
+  }
+  
+  graphics.Restore(state);
+}
+
+// Draw a segment of non-CJK text (Latin characters) as a continuous string
+void DrawLatinSegment(Gdiplus::Graphics& graphics, const std::wstring& segment,
+                      Gdiplus::FontFamily* fontFamily, int fontSize, int strokeWidth,
+                      DWORD textColor, DWORD strokeColor,
+                      float x, float y, float height) {
+  Gdiplus::Font font(fontFamily, static_cast<Gdiplus::REAL>(fontSize), 
+                     Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+  
+  // Measure segment width
+  Gdiplus::RectF measureRect(0, 0, 10000, height);
+  Gdiplus::RectF bounds;
+  Gdiplus::StringFormat measureFormat;
+  graphics.MeasureString(segment.c_str(), -1, &font, measureRect, &measureFormat, &bounds);
+  
+  Gdiplus::StringFormat format;
+  format.SetAlignment(Gdiplus::StringAlignmentNear);
+  format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+  
+  Gdiplus::RectF textRect(x, y, bounds.Width, height);
+  
+  if (strokeWidth > 0) {
+    Gdiplus::GraphicsPath path;
+    path.AddString(segment.c_str(), -1, fontFamily, Gdiplus::FontStyleBold,
+                   static_cast<Gdiplus::REAL>(fontSize), textRect, &format);
+    
+    Gdiplus::Pen strokePen(Gdiplus::Color(
+        (strokeColor >> 24) & 0xFF, (strokeColor >> 16) & 0xFF,
+        (strokeColor >> 8) & 0xFF, strokeColor & 0xFF
+    ), static_cast<Gdiplus::REAL>(strokeWidth));
+    strokePen.SetLineJoin(Gdiplus::LineJoinRound);
+    graphics.DrawPath(&strokePen, &path);
+    
+    Gdiplus::SolidBrush fillBrush(Gdiplus::Color(
+        (textColor >> 24) & 0xFF, (textColor >> 16) & 0xFF,
+        (textColor >> 8) & 0xFF, textColor & 0xFF
+    ));
+    graphics.FillPath(&fillBrush, &path);
+  } else {
+    Gdiplus::SolidBrush textBrush(Gdiplus::Color(
+        (textColor >> 24) & 0xFF, (textColor >> 16) & 0xFF,
+        (textColor >> 8) & 0xFF, textColor & 0xFF
+    ));
+    graphics.DrawString(segment.c_str(), -1, &font, textRect, &format, &textBrush);
+  }
+}
+
+// Draw text with per-character rotation for CJK in vertical mode
+// Latin characters are drawn as continuous strings to preserve proper spacing
+void DrawVerticalModeText(Gdiplus::Graphics& graphics, const std::wstring& text,
+                          Gdiplus::FontFamily* fontFamily, int fontSize, int strokeWidth,
+                          DWORD textColor, DWORD strokeColor,
+                          float startX, float y, float height, float scrollOffset = 0.0f) {
+  Gdiplus::Font measureFont(fontFamily, static_cast<Gdiplus::REAL>(fontSize), 
+                            Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+  Gdiplus::RectF measureRect(0, 0, 10000, static_cast<Gdiplus::REAL>(height));
+  Gdiplus::StringFormat measureFormat;
+  
+  float x = startX - scrollOffset;
+  size_t i = 0;
+  
+  while (i < text.length()) {
+    wchar_t ch = text[i];
+    
+    if (IsCJKCharacter(ch)) {
+      // Draw CJK character with rotation
+      wchar_t str[2] = { ch, 0 };
+      Gdiplus::RectF charBounds;
+      graphics.MeasureString(str, -1, &measureFont, measureRect, &measureFormat, &charBounds);
+      float charWidth = charBounds.Width > 0 ? charBounds.Width : fontSize * 1.0f;
+      
+      DrawCharWithRotation(graphics, ch, fontFamily, fontSize, strokeWidth,
+                           textColor, strokeColor, x, y, charWidth, height, true);
+      x += charWidth;
+      i++;
+    } else {
+      // Collect consecutive non-CJK characters
+      std::wstring latinSegment;
+      while (i < text.length() && !IsCJKCharacter(text[i])) {
+        latinSegment += text[i];
+        i++;
+      }
+      
+      // Measure the segment width
+      Gdiplus::RectF segmentBounds;
+      graphics.MeasureString(latinSegment.c_str(), -1, &measureFont, measureRect, &measureFormat, &segmentBounds);
+      
+      // Draw the Latin segment as a continuous string (no rotation)
+      DrawLatinSegment(graphics, latinSegment, fontFamily, fontSize, strokeWidth,
+                       textColor, strokeColor, x, y, height);
+      
+      x += segmentBounds.Width;
+    }
+  }
+}
+
+// Helper to apply -90° rotation around a point for button icons in vertical mode
+// Returns the saved graphics state for later restoration
+Gdiplus::GraphicsState ApplyButtonRotation(Gdiplus::Graphics& graphics, bool isVertical, 
+                                            float centerX, float centerY) {
+  Gdiplus::GraphicsState state = graphics.Save();
+  if (isVertical) {
+    graphics.TranslateTransform(centerX, centerY);
+    graphics.RotateTransform(-90.0f);
+    graphics.TranslateTransform(-centerX, -centerY);
+  }
+  return state;
 }
 
 }  // namespace
@@ -67,7 +256,8 @@ DesktopLyricWindow::DesktopLyricWindow()
       lyric_duration_ms_(3000),  // Default 3 seconds
       lyric_scroll_speed_(0.0f),
       trans_scroll_speed_(0.0f),
-      playback_callback_(nullptr) {
+      playback_callback_(nullptr),
+      is_vertical_(false) {
   InitGdiPlus();
   
   // Initialize button rects
@@ -79,6 +269,7 @@ DesktopLyricWindow::DesktopLyricWindow()
   memset(&color_picker_rect_, 0, sizeof(RECT));
   memset(&translation_toggle_rect_, 0, sizeof(RECT));
   memset(&close_button_rect_, 0, sizeof(RECT));
+  memset(&vertical_toggle_rect_, 0, sizeof(RECT));
 }
 
 DesktopLyricWindow::~DesktopLyricWindow() {
@@ -94,7 +285,7 @@ bool DesktopLyricWindow::Create() {
   // Register window class
   WNDCLASSEX wc = {};
   wc.cbSize = sizeof(WNDCLASSEX);
-  wc.style = CS_HREDRAW | CS_VREDRAW;
+  wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;  // Enable double-click
   wc.lpfnWndProc = WndProc;
   wc.hInstance = GetModuleHandle(nullptr);
   wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -300,29 +491,42 @@ int DesktopLyricWindow::GetControlPanelHeight() const {
 void DesktopLyricWindow::UpdateWindow() {
   if (hwnd_ == nullptr) return;
 
-  // Determine current window height based on control panel state and translation
-  int current_height;
+  int current_width, current_height;
+  
+  // Calculate "logical" horizontal dimensions first
+  int logical_width = kWindowWidth;
+  int logical_height;
+  
   if (show_controls_) {
-    current_height = GetControlPanelHeight();
+    logical_height = GetControlPanelHeight();
   } else {
     // Normal mode: adjust height based on whether translation is shown
     bool hasTranslation = show_translation_ && !translation_text_.empty();
     if (hasTranslation) {
-      // Height for lyric + translation
-      current_height = kWindowHeight + static_cast<int>(font_size_ * 0.6f) + 10;
+      logical_height = kWindowHeight + static_cast<int>(font_size_ * 0.6f) + 10;
     } else {
-      current_height = kWindowHeight;
+      logical_height = kWindowHeight;
     }
+  }
+  
+  if (is_vertical_) {
+    // Vertical mode: swap width and height (rotate 90°)
+    current_width = logical_height;
+    current_height = logical_width;
+  } else {
+    // Horizontal mode: use logical dimensions directly
+    current_width = logical_width;
+    current_height = logical_height;
   }
 
   // Create memory DC
   HDC hdc_screen = GetDC(nullptr);
   HDC hdc_mem = CreateCompatibleDC(hdc_screen);
   
-  // Create 32-bit bitmap with dynamic height
+  // Create 32-bit bitmap with dynamic size
   BITMAPINFO bmi = {};
   bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  bmi.bmiHeader.biWidth = kWindowWidth;
+  bmi.bmiHeader.biWidth = current_width;
   bmi.bmiHeader.biHeight = -current_height;  // Negative means top-down
   bmi.bmiHeader.biPlanes = 1;
   bmi.bmiHeader.biBitCount = 32;
@@ -332,12 +536,12 @@ void DesktopLyricWindow::UpdateWindow() {
   HBITMAP hbm = CreateDIBSection(hdc_mem, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
   HBITMAP hbm_old = (HBITMAP)SelectObject(hdc_mem, hbm);
   
-  // Draw lyric with dynamic height
-  DrawLyric(hdc_mem, kWindowWidth, current_height);
+  // Draw lyric with dynamic size
+  DrawLyric(hdc_mem, current_width, current_height);
   
   // Update layered window with dynamic size
   POINT pt_src = {0, 0};
-  SIZE size = {kWindowWidth, current_height};
+  SIZE size = {current_width, current_height};
   BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
   
   UpdateLayeredWindow(hwnd_, hdc_screen, nullptr, &size, hdc_mem, &pt_src,
@@ -359,9 +563,27 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
   // Clear background (transparent)
   graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
   
-  // Draw control panel if hovered
+  // In vertical mode, apply 90° clockwise rotation
+  // This rotates the horizontal layout to become vertical
+  int draw_width = width;
+  int draw_height = height;
+  if (is_vertical_) {
+    // Rotate 90° clockwise: (x,y) -> (height-y, x)
+    // We'll draw in "logical horizontal" space with swapped dimensions
+    draw_width = height;
+    draw_height = width;
+    
+    // Apply rotation transform
+    graphics.TranslateTransform(static_cast<Gdiplus::REAL>(width) / 2.0f, 
+                                 static_cast<Gdiplus::REAL>(height) / 2.0f);
+    graphics.RotateTransform(90.0f);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(height) / 2.0f, 
+                                 -static_cast<Gdiplus::REAL>(width) / 2.0f);
+  }
+  
+  // Show control panel on hover (works in both horizontal and vertical modes)
   if (show_controls_) {
-    DrawControlPanel(hdc, width, height);
+    DrawControlPanel(hdc, draw_width, draw_height);
     return;
   }
   
@@ -379,7 +601,7 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
   int lyric_height = font_size_ + 10;
   int trans_height = hasTranslation ? static_cast<int>(font_size_ * 0.6f) + 5 : 0;
   int total_content_height = lyric_height + trans_height;
-  int start_y = (height - total_content_height) / 2;
+  int start_y = (draw_height - total_content_height) / 2;
   
   // Measure lyric text width
   Gdiplus::RectF measureRect(0, 0, 10000, static_cast<Gdiplus::REAL>(lyric_height));
@@ -392,14 +614,14 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
   
   // Check if lyric needs scrolling (with some padding)
   const float padding = 40.0f;
-  lyric_needs_scroll_ = lyric_text_width_ > (width - padding);
+  lyric_needs_scroll_ = lyric_text_width_ > (draw_width - padding);
   
   // Calculate scroll offset for lyric
   DWORD currentTime = GetTickCount();
   float lyric_x_offset = 0.0f;
   
   if (lyric_needs_scroll_) {
-    float maxScroll = lyric_text_width_ - width + padding;
+    float maxScroll = lyric_text_width_ - draw_width + padding;
     
     // Calculate scroll speed if not yet calculated
     // Speed = distance / (available_time - pause_time)
@@ -442,48 +664,59 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
   Gdiplus::RectF lyricRect(
     lyric_needs_scroll_ ? lyric_x_offset + padding / 2 : 0,
     static_cast<Gdiplus::REAL>(start_y), 
-    lyric_needs_scroll_ ? lyric_text_width_ + padding : static_cast<Gdiplus::REAL>(width), 
+    lyric_needs_scroll_ ? lyric_text_width_ + padding : static_cast<Gdiplus::REAL>(draw_width), 
     static_cast<Gdiplus::REAL>(lyric_height)
   );
   
   // Set clipping region to prevent text from drawing outside window
   graphics.SetClip(Gdiplus::RectF(0, static_cast<Gdiplus::REAL>(start_y), 
-                                   static_cast<Gdiplus::REAL>(width), 
+                                   static_cast<Gdiplus::REAL>(draw_width), 
                                    static_cast<Gdiplus::REAL>(lyric_height)));
   
-  // Draw main lyric with stroke
-  if (stroke_width_ > 0) {
-    Gdiplus::GraphicsPath path;
-    Gdiplus::FontFamily fontFamilyPath(L"Microsoft YaHei");
-    path.AddString(lyric_text_.c_str(), -1, &fontFamilyPath, 
-                   Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(font_size_),
-                   lyricRect, &format);
-    
-    Gdiplus::Pen stroke_pen(Gdiplus::Color(
-        (stroke_color_ >> 24) & 0xFF,
-        (stroke_color_ >> 16) & 0xFF,
-        (stroke_color_ >> 8) & 0xFF,
-        stroke_color_ & 0xFF
-    ), static_cast<Gdiplus::REAL>(stroke_width_));
-    
-    stroke_pen.SetLineJoin(Gdiplus::LineJoinRound);
-    graphics.DrawPath(&stroke_pen, &path);
-    
-    Gdiplus::SolidBrush text_brush(Gdiplus::Color(
-        (text_color_ >> 24) & 0xFF,
-        (text_color_ >> 16) & 0xFF,
-        (text_color_ >> 8) & 0xFF,
-        text_color_ & 0xFF
-    ));
-    graphics.FillPath(&text_brush, &path);
+  // Draw main lyric
+  if (is_vertical_) {
+    // In vertical mode, draw character by character with CJK rotation
+    Gdiplus::FontFamily lyricFontFamily(L"Microsoft YaHei");
+    float startX = lyric_needs_scroll_ ? padding / 2 : (draw_width - lyric_text_width_) / 2;
+    DrawVerticalModeText(graphics, lyric_text_, &lyricFontFamily, font_size_, stroke_width_,
+                         text_color_, stroke_color_, startX, 
+                         static_cast<float>(start_y), static_cast<float>(lyric_height),
+                         lyric_scroll_offset_);
   } else {
-    Gdiplus::SolidBrush text_brush(Gdiplus::Color(
-        (text_color_ >> 24) & 0xFF,
-        (text_color_ >> 16) & 0xFF,
-        (text_color_ >> 8) & 0xFF,
-        text_color_ & 0xFF
-    ));
-    graphics.DrawString(lyric_text_.c_str(), -1, &font, lyricRect, &format, &text_brush);
+    // Horizontal mode: draw as before
+    if (stroke_width_ > 0) {
+      Gdiplus::GraphicsPath path;
+      Gdiplus::FontFamily fontFamilyPath(L"Microsoft YaHei");
+      path.AddString(lyric_text_.c_str(), -1, &fontFamilyPath, 
+                     Gdiplus::FontStyleBold, static_cast<Gdiplus::REAL>(font_size_),
+                     lyricRect, &format);
+      
+      Gdiplus::Pen stroke_pen(Gdiplus::Color(
+          (stroke_color_ >> 24) & 0xFF,
+          (stroke_color_ >> 16) & 0xFF,
+          (stroke_color_ >> 8) & 0xFF,
+          stroke_color_ & 0xFF
+      ), static_cast<Gdiplus::REAL>(stroke_width_));
+      
+      stroke_pen.SetLineJoin(Gdiplus::LineJoinRound);
+      graphics.DrawPath(&stroke_pen, &path);
+      
+      Gdiplus::SolidBrush text_brush(Gdiplus::Color(
+          (text_color_ >> 24) & 0xFF,
+          (text_color_ >> 16) & 0xFF,
+          (text_color_ >> 8) & 0xFF,
+          text_color_ & 0xFF
+      ));
+      graphics.FillPath(&text_brush, &path);
+    } else {
+      Gdiplus::SolidBrush text_brush(Gdiplus::Color(
+          (text_color_ >> 24) & 0xFF,
+          (text_color_ >> 16) & 0xFF,
+          (text_color_ >> 8) & 0xFF,
+          text_color_ & 0xFF
+      ));
+      graphics.DrawString(lyric_text_.c_str(), -1, &font, lyricRect, &format, &text_brush);
+    }
   }
   
   // Reset clipping
@@ -501,13 +734,13 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
     trans_text_width_ = transBounds.Width;
     
     // Check if translation needs scrolling
-    trans_needs_scroll_ = trans_text_width_ > (width - padding);
+    trans_needs_scroll_ = trans_text_width_ > (draw_width - padding);
     
     // Calculate scroll offset for translation
     float trans_x_offset = 0.0f;
     
     if (trans_needs_scroll_) {
-      float maxTransScroll = trans_text_width_ - width + padding;
+      float maxTransScroll = trans_text_width_ - draw_width + padding;
       
       // Calculate scroll speed for translation (same timing as lyric)
       if (trans_scroll_speed_ <= 0.0f && maxTransScroll > 0) {
@@ -546,45 +779,62 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
     Gdiplus::RectF transRect(
       trans_needs_scroll_ ? trans_x_offset + padding / 2 : 0,
       static_cast<Gdiplus::REAL>(start_y + lyric_height), 
-      trans_needs_scroll_ ? trans_text_width_ + padding : static_cast<Gdiplus::REAL>(width), 
+      trans_needs_scroll_ ? trans_text_width_ + padding : static_cast<Gdiplus::REAL>(draw_width), 
       static_cast<Gdiplus::REAL>(trans_height)
     );
     
     // Set clipping for translation
     graphics.SetClip(Gdiplus::RectF(0, static_cast<Gdiplus::REAL>(start_y + lyric_height), 
-                                     static_cast<Gdiplus::REAL>(width), 
+                                     static_cast<Gdiplus::REAL>(draw_width), 
                                      static_cast<Gdiplus::REAL>(trans_height)));
     
-    if (stroke_width_ > 0) {
-      Gdiplus::GraphicsPath trans_path;
-      trans_path.AddString(translation_text_.c_str(), -1, &fontFamily, 
-                           Gdiplus::FontStyleRegular, static_cast<Gdiplus::REAL>(font_size_ * 0.6f),
-                           transRect, &transFormat);
-      
-      Gdiplus::Pen trans_stroke_pen(Gdiplus::Color(
-          (stroke_color_ >> 24) & 0xFF,
-          (stroke_color_ >> 16) & 0xFF,
-          (stroke_color_ >> 8) & 0xFF,
-          stroke_color_ & 0xFF
-      ), static_cast<Gdiplus::REAL>(stroke_width_ * 0.7f));
-      trans_stroke_pen.SetLineJoin(Gdiplus::LineJoinRound);
-      graphics.DrawPath(&trans_stroke_pen, &trans_path);
-      
-      Gdiplus::SolidBrush trans_brush(Gdiplus::Color(
-          200,
-          (text_color_ >> 16) & 0xFF,
-          (text_color_ >> 8) & 0xFF,
-          text_color_ & 0xFF
-      ));
-      graphics.FillPath(&trans_brush, &trans_path);
+    // Translation text color (slightly transparent)
+    DWORD trans_text_color = (200 << 24) | ((text_color_ >> 16) & 0xFF) << 16 | 
+                             ((text_color_ >> 8) & 0xFF) << 8 | (text_color_ & 0xFF);
+    
+    if (is_vertical_) {
+      // In vertical mode, draw character by character with CJK rotation
+      Gdiplus::FontFamily transFontFamily(L"Microsoft YaHei");
+      int trans_font_size = static_cast<int>(font_size_ * 0.6f);
+      int trans_stroke = static_cast<int>(stroke_width_ * 0.7f);
+      float transStartX = trans_needs_scroll_ ? padding / 2 : (draw_width - trans_text_width_) / 2;
+      DrawVerticalModeText(graphics, translation_text_, &transFontFamily, trans_font_size, trans_stroke,
+                           trans_text_color, stroke_color_, transStartX,
+                           static_cast<float>(start_y + lyric_height), static_cast<float>(trans_height),
+                           trans_scroll_offset_);
     } else {
-      Gdiplus::SolidBrush trans_brush(Gdiplus::Color(
-          200,
-          (text_color_ >> 16) & 0xFF,
-          (text_color_ >> 8) & 0xFF,
-          text_color_ & 0xFF
-      ));
-      graphics.DrawString(translation_text_.c_str(), -1, &trans_font, transRect, &transFormat, &trans_brush);
+      // Horizontal mode: draw as before
+      if (stroke_width_ > 0) {
+        Gdiplus::GraphicsPath trans_path;
+        trans_path.AddString(translation_text_.c_str(), -1, &fontFamily, 
+                             Gdiplus::FontStyleRegular, static_cast<Gdiplus::REAL>(font_size_ * 0.6f),
+                             transRect, &transFormat);
+        
+        Gdiplus::Pen trans_stroke_pen(Gdiplus::Color(
+            (stroke_color_ >> 24) & 0xFF,
+            (stroke_color_ >> 16) & 0xFF,
+            (stroke_color_ >> 8) & 0xFF,
+            stroke_color_ & 0xFF
+        ), static_cast<Gdiplus::REAL>(stroke_width_ * 0.7f));
+        trans_stroke_pen.SetLineJoin(Gdiplus::LineJoinRound);
+        graphics.DrawPath(&trans_stroke_pen, &trans_path);
+        
+        Gdiplus::SolidBrush trans_brush(Gdiplus::Color(
+            200,
+            (text_color_ >> 16) & 0xFF,
+            (text_color_ >> 8) & 0xFF,
+            text_color_ & 0xFF
+        ));
+        graphics.FillPath(&trans_brush, &trans_path);
+      } else {
+        Gdiplus::SolidBrush trans_brush(Gdiplus::Color(
+            200,
+            (text_color_ >> 16) & 0xFF,
+            (text_color_ >> 8) & 0xFF,
+            text_color_ & 0xFF
+        ));
+        graphics.DrawString(translation_text_.c_str(), -1, &trans_font, transRect, &transFormat, &trans_brush);
+      }
     }
     
     graphics.ResetClip();
@@ -595,9 +845,9 @@ void DesktopLyricWindow::DrawLyric(HDC hdc, int width, int height) {
   
   // Check if scrolling is still in progress
   bool lyric_still_scrolling = lyric_needs_scroll_ && 
-      (lyric_scroll_pause_start_ > 0 || lyric_scroll_offset_ < lyric_text_width_ - width + padding);
+      (lyric_scroll_pause_start_ > 0 || lyric_scroll_offset_ < lyric_text_width_ - draw_width + padding);
   bool trans_still_scrolling = trans_needs_scroll_ && 
-      (trans_scroll_pause_start_ > 0 || trans_scroll_offset_ < trans_text_width_ - width + padding);
+      (trans_scroll_pause_start_ > 0 || trans_scroll_offset_ < trans_text_width_ - draw_width + padding);
   
   // If scrolling is in progress, set a timer to refresh
   if ((lyric_still_scrolling || trans_still_scrolling) && hwnd_ != nullptr && !show_controls_) {
@@ -617,20 +867,66 @@ LRESULT CALLBACK DesktopLyricWindow::WndProc(HWND hwnd, UINT message,
   }
   
   switch (message) {
+    case WM_LBUTTONDBLCLK: {
+      // Double-click to toggle vertical mode (especially useful in vertical mode where controls are hidden)
+      if (window->playback_callback_) {
+        window->playback_callback_("toggle_vertical");
+      }
+      return 0;
+    }
+    
     case WM_LBUTTONDOWN: {
-      POINT pt = {LOWORD(lparam), HIWORD(lparam)};
+      POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      POINT originalPt = pt;  // Keep original for dragging
       bool button_clicked = false;
       
       if (window->show_controls_) {
-        // Check if clicked on a button
-        button_clicked = window->HandleButtonClick(pt);
+        // In vertical mode, transform mouse coordinates from actual to logical space
+        // The control panel is drawn in rotated coordinates, so we need to inverse transform
+        if (window->is_vertical_) {
+          // Get actual window dimensions
+          RECT windowRect;
+          GetClientRect(hwnd, &windowRect);
+          int actual_width = windowRect.right;   // = logical_height (control panel height)
+          int actual_height = windowRect.bottom; // = logical_width (800)
+          
+          // The drawing transform in DrawControlPanel is:
+          // 1. Translate to (actual_width/2, actual_height/2)
+          // 2. Rotate 90° clockwise
+          // 3. Translate by (-actual_height/2, -actual_width/2)
+          // 
+          // For a logical point (lx, ly):
+          //   After transform: ax = ly, ay = actual_height - lx
+          // 
+          // Inverse transform: lx = actual_height - ay, ly = ax
+          // But our logical coordinate system origin is different!
+          // 
+          // Actually the DrawControlPanel uses width/height params as logical dimensions
+          // In vertical mode: width param = logical_width, height param = logical_height
+          // The rotation center is at (actual_width/2, actual_height/2) in bitmap coords
+          // 
+          // Correct inverse: lx = actual_height - pt.y, ly = pt.x
+          POINT logicalPt;
+          logicalPt.x = actual_height - pt.y;
+          logicalPt.y = pt.x;
+          
+          // Debug output
+          wchar_t dbg[256];
+          swprintf_s(dbg, L"[DesktopLyric] Click: actual(%d,%d) -> logical(%d,%d), window(%dx%d)\n",
+                     pt.x, pt.y, logicalPt.x, logicalPt.y, actual_width, actual_height);
+          OutputDebugStringW(dbg);
+          
+          button_clicked = window->HandleButtonClick(logicalPt);
+        } else {
+          button_clicked = window->HandleButtonClick(pt);
+        }
       }
       
-      // If not clicking a button and draggable, start dragging
+      // If not clicking a button and draggable, start dragging (use original coordinates)
       if (!button_clicked && window->is_draggable_) {
         window->is_dragging_ = true;
-        window->drag_point_.x = pt.x;
-        window->drag_point_.y = pt.y;
+        window->drag_point_.x = originalPt.x;
+        window->drag_point_.y = originalPt.y;
         SetCapture(hwnd);
       }
       return 0;
@@ -689,15 +985,20 @@ LRESULT CALLBACK DesktopLyricWindow::WndProc(HWND hwnd, UINT message,
       RECT rect;
       GetWindowRect(hwnd, &rect);
       
-      // Calculate normal mode height (with or without translation)
+      // Calculate logical horizontal dimensions
       bool hasTranslation = window->show_translation_ && !window->translation_text_.empty();
-      int normal_height = hasTranslation 
+      int logical_width = kWindowWidth;
+      int logical_height = hasTranslation 
           ? kWindowHeight + static_cast<int>(window->font_size_ * 0.6f) + 10
           : kWindowHeight;
       
+      // For vertical mode, swap dimensions
+      int new_width = window->is_vertical_ ? logical_height : logical_width;
+      int new_height = window->is_vertical_ ? logical_width : logical_height;
+      
       // Resize window back to lyric-only size (keep position)
       SetWindowPos(hwnd, HWND_TOPMOST, rect.left, rect.top, 
-                   kWindowWidth, normal_height,
+                   new_width, new_height,
                    SWP_NOACTIVATE);
       window->UpdateWindow();
       return 0;
@@ -715,13 +1016,17 @@ LRESULT CALLBACK DesktopLyricWindow::WndProc(HWND hwnd, UINT message,
         RECT rect;
         GetWindowRect(hwnd, &rect);
         
-        // Calculate new Y position to expand downward
-        // Keep top position the same, just increase height
-        int current_y = rect.top;
+        // Calculate logical dimensions for control panel
+        int logical_width = kWindowWidth;
+        int logical_height = window->GetControlPanelHeight();
         
-        // Resize window to show control panel (expand downward)
-        SetWindowPos(hwnd, HWND_TOPMOST, rect.left, current_y, 
-                     kWindowWidth, window->GetControlPanelHeight(),
+        // For vertical mode, swap dimensions
+        int new_width = window->is_vertical_ ? logical_height : logical_width;
+        int new_height = window->is_vertical_ ? logical_width : logical_height;
+        
+        // Resize window to show control panel
+        SetWindowPos(hwnd, HWND_TOPMOST, rect.left, rect.top, 
+                     new_width, new_height,
                      SWP_NOACTIVATE);
         window->UpdateWindow();
       } else if (wparam == 2) {
@@ -751,31 +1056,54 @@ bool DesktopLyricWindow::IsPointInRect(const POINT& pt, const RECT& rect) const 
 }
 
 bool DesktopLyricWindow::HandleButtonClick(const POINT& pt) {
+  // Debug: output button rects
+  wchar_t dbg[512];
+  swprintf_s(dbg, L"[DesktopLyric] HandleButtonClick pt(%d,%d), play_rect(%d,%d,%d,%d), prev_rect(%d,%d,%d,%d)\n",
+             pt.x, pt.y,
+             play_pause_button_rect_.left, play_pause_button_rect_.top,
+             play_pause_button_rect_.right, play_pause_button_rect_.bottom,
+             prev_button_rect_.left, prev_button_rect_.top,
+             prev_button_rect_.right, prev_button_rect_.bottom);
+  OutputDebugStringW(dbg);
+  
   if (IsPointInRect(pt, prev_button_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Previous button clicked\n");
     if (playback_callback_) playback_callback_("previous");
     return true;
   } else if (IsPointInRect(pt, play_pause_button_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Play/Pause button clicked\n");
     if (playback_callback_) playback_callback_("play_pause");
     return true;
   } else if (IsPointInRect(pt, next_button_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Next button clicked\n");
     if (playback_callback_) playback_callback_("next");
     return true;
   } else if (IsPointInRect(pt, font_size_up_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Font size up clicked\n");
     if (playback_callback_) playback_callback_("font_size_up");
     return true;
   } else if (IsPointInRect(pt, font_size_down_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Font size down clicked\n");
     if (playback_callback_) playback_callback_("font_size_down");
     return true;
   } else if (IsPointInRect(pt, color_picker_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Color picker clicked\n");
     if (playback_callback_) playback_callback_("color_picker");
     return true;
   } else if (IsPointInRect(pt, translation_toggle_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Translation toggle clicked\n");
     if (playback_callback_) playback_callback_("toggle_translation");
     return true;
+  } else if (IsPointInRect(pt, vertical_toggle_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Vertical toggle clicked\n");
+    if (playback_callback_) playback_callback_("toggle_vertical");
+    return true;
   } else if (IsPointInRect(pt, close_button_rect_)) {
+    OutputDebugStringW(L"[DesktopLyric] Close button clicked\n");
     if (playback_callback_) playback_callback_("close");
     return true;
   }
+  OutputDebugStringW(L"[DesktopLyric] No button matched\n");
   return false;  // No button was clicked
 }
 
@@ -801,12 +1129,55 @@ void DesktopLyricWindow::SetShowTranslation(bool show) {
   }
 }
 
+void DesktopLyricWindow::SetVertical(bool vertical) {
+  if (is_vertical_ != vertical) {
+    is_vertical_ = vertical;
+    
+    // Update window size based on orientation (swap dimensions)
+    if (hwnd_ != nullptr) {
+      RECT rect;
+      GetWindowRect(hwnd_, &rect);
+      
+      // Calculate logical horizontal dimensions
+      bool hasTranslation = show_translation_ && !translation_text_.empty();
+      int logical_width = kWindowWidth;
+      int logical_height = hasTranslation 
+          ? kWindowHeight + static_cast<int>(font_size_ * 0.6f) + 10
+          : kWindowHeight;
+      
+      // For vertical mode, swap width and height
+      int new_width = vertical ? logical_height : logical_width;
+      int new_height = vertical ? logical_width : logical_height;
+      
+      SetWindowPos(hwnd_, HWND_TOPMOST, rect.left, rect.top, 
+                   new_width, new_height, SWP_NOACTIVATE);
+    }
+    
+    if (IsVisible()) {
+      UpdateWindow();
+    }
+  }
+}
+
 void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
   OutputDebugStringW(L"[DesktopLyric] Drawing control panel\n");
   
   Gdiplus::Graphics graphics(hdc);
   graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
   graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+  
+  // In vertical mode, apply 90° clockwise rotation
+  // width/height params are logical (horizontal) dimensions
+  // actual bitmap dimensions are swapped
+  if (is_vertical_) {
+    int actual_width = height;   // actual bitmap width = logical height
+    int actual_height = width;   // actual bitmap height = logical width
+    graphics.TranslateTransform(static_cast<Gdiplus::REAL>(actual_width) / 2.0f, 
+                                 static_cast<Gdiplus::REAL>(actual_height) / 2.0f);
+    graphics.RotateTransform(90.0f);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(actual_height) / 2.0f, 
+                                 -static_cast<Gdiplus::REAL>(actual_width) / 2.0f);
+  }
   
   // Draw semi-transparent background
   Gdiplus::SolidBrush bg_brush(Gdiplus::Color(200, 30, 30, 30));  // Semi-transparent dark gray
@@ -839,14 +1210,20 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                        static_cast<Gdiplus::REAL>(close_y), 
                        static_cast<Gdiplus::REAL>(close_btn_size), 
                        static_cast<Gdiplus::REAL>(close_btn_size));
-  // Draw X
-  Gdiplus::Pen close_pen(Gdiplus::Color(255, 255, 255, 255), 2.0f);
-  graphics.DrawLine(&close_pen, 
-                    static_cast<Gdiplus::REAL>(close_x + 7), static_cast<Gdiplus::REAL>(close_y + 7),
-                    static_cast<Gdiplus::REAL>(close_x + close_btn_size - 7), static_cast<Gdiplus::REAL>(close_y + close_btn_size - 7));
-  graphics.DrawLine(&close_pen, 
-                    static_cast<Gdiplus::REAL>(close_x + close_btn_size - 7), static_cast<Gdiplus::REAL>(close_y + 7),
-                    static_cast<Gdiplus::REAL>(close_x + 7), static_cast<Gdiplus::REAL>(close_y + close_btn_size - 7));
+  // Draw X (with rotation in vertical mode)
+  {
+    float closeCenterX = close_x + close_btn_size / 2.0f;
+    float closeCenterY = close_y + close_btn_size / 2.0f;
+    Gdiplus::GraphicsState closeState = ApplyButtonRotation(graphics, is_vertical_, closeCenterX, closeCenterY);
+    Gdiplus::Pen close_pen(Gdiplus::Color(255, 255, 255, 255), 2.0f);
+    graphics.DrawLine(&close_pen, 
+                      static_cast<Gdiplus::REAL>(close_x + 7), static_cast<Gdiplus::REAL>(close_y + 7),
+                      static_cast<Gdiplus::REAL>(close_x + close_btn_size - 7), static_cast<Gdiplus::REAL>(close_y + close_btn_size - 7));
+    graphics.DrawLine(&close_pen, 
+                      static_cast<Gdiplus::REAL>(close_x + close_btn_size - 7), static_cast<Gdiplus::REAL>(close_y + 7),
+                      static_cast<Gdiplus::REAL>(close_x + 7), static_cast<Gdiplus::REAL>(close_y + close_btn_size - 7));
+    graphics.Restore(closeState);
+  }
   
   // Draw song info
   Gdiplus::FontFamily fontFamily(L"Microsoft YaHei");
@@ -963,15 +1340,21 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                        static_cast<Gdiplus::REAL>(button_y), 
                        static_cast<Gdiplus::REAL>(button_size), 
                        static_cast<Gdiplus::REAL>(button_size));
-  Gdiplus::PointF prev_triangle[3] = {
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.6f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.6f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.35f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
-  };
-  graphics.FillPolygon(&icon_brush, prev_triangle, 3);
+  {
+    float prevCenterX = prev_x + button_size / 2.0f;
+    float prevCenterY = button_y + button_size / 2.0f;
+    Gdiplus::GraphicsState prevState = ApplyButtonRotation(graphics, is_vertical_, prevCenterX, prevCenterY);
+    Gdiplus::PointF prev_triangle[3] = {
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.6f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.6f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(prev_x + button_size * 0.35f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
+    };
+    graphics.FillPolygon(&icon_brush, prev_triangle, 3);
+    graphics.Restore(prevState);
+  }
   
   // Play/Pause button
   int play_x = center_x - button_size / 2;
@@ -985,35 +1368,42 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                        static_cast<Gdiplus::REAL>(button_size), 
                        static_cast<Gdiplus::REAL>(button_size));
   
-  if (is_playing_) {
-    // Draw pause icon (two vertical bars ⏸)
-    int bar_width = static_cast<int>(button_size * 0.12f);
-    int bar_height = static_cast<int>(button_size * 0.4f);
-    int bar_y_pos = button_y + static_cast<int>(button_size * 0.3f);
-    int bar1_x = play_x + static_cast<int>(button_size * 0.32f);
-    int bar2_x = play_x + static_cast<int>(button_size * 0.56f);
+  {
+    float playCenterX = play_x + button_size / 2.0f;
+    float playCenterY = button_y + button_size / 2.0f;
+    Gdiplus::GraphicsState playState = ApplyButtonRotation(graphics, is_vertical_, playCenterX, playCenterY);
     
-    Gdiplus::RectF bar1(static_cast<Gdiplus::REAL>(bar1_x), 
-                        static_cast<Gdiplus::REAL>(bar_y_pos),
-                        static_cast<Gdiplus::REAL>(bar_width), 
-                        static_cast<Gdiplus::REAL>(bar_height));
-    Gdiplus::RectF bar2(static_cast<Gdiplus::REAL>(bar2_x), 
-                        static_cast<Gdiplus::REAL>(bar_y_pos),
-                        static_cast<Gdiplus::REAL>(bar_width), 
-                        static_cast<Gdiplus::REAL>(bar_height));
-    graphics.FillRectangle(&icon_brush, bar1);
-    graphics.FillRectangle(&icon_brush, bar2);
-  } else {
-    // Draw play triangle (▶)
-    Gdiplus::PointF play_triangle[3] = {
-      Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.38f), 
-                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
-      Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.38f), 
-                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
-      Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.68f), 
-                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
-    };
-    graphics.FillPolygon(&icon_brush, play_triangle, 3);
+    if (is_playing_) {
+      // Draw pause icon (two vertical bars ⏸)
+      int bar_width = static_cast<int>(button_size * 0.12f);
+      int bar_height = static_cast<int>(button_size * 0.4f);
+      int bar_y_pos = button_y + static_cast<int>(button_size * 0.3f);
+      int bar1_x = play_x + static_cast<int>(button_size * 0.32f);
+      int bar2_x = play_x + static_cast<int>(button_size * 0.56f);
+      
+      Gdiplus::RectF bar1(static_cast<Gdiplus::REAL>(bar1_x), 
+                          static_cast<Gdiplus::REAL>(bar_y_pos),
+                          static_cast<Gdiplus::REAL>(bar_width), 
+                          static_cast<Gdiplus::REAL>(bar_height));
+      Gdiplus::RectF bar2(static_cast<Gdiplus::REAL>(bar2_x), 
+                          static_cast<Gdiplus::REAL>(bar_y_pos),
+                          static_cast<Gdiplus::REAL>(bar_width), 
+                          static_cast<Gdiplus::REAL>(bar_height));
+      graphics.FillRectangle(&icon_brush, bar1);
+      graphics.FillRectangle(&icon_brush, bar2);
+    } else {
+      // Draw play triangle (▶)
+      Gdiplus::PointF play_triangle[3] = {
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.38f), 
+                        static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.38f), 
+                        static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(play_x + button_size * 0.68f), 
+                        static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
+      };
+      graphics.FillPolygon(&icon_brush, play_triangle, 3);
+    }
+    graphics.Restore(playState);
   }
   
   // Next button
@@ -1028,15 +1418,21 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                        static_cast<Gdiplus::REAL>(button_size), 
                        static_cast<Gdiplus::REAL>(button_size));
   // Draw next triangle (▶)
-  Gdiplus::PointF next_triangle[3] = {
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.4f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.4f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
-    Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.65f), 
-                    static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
-  };
-  graphics.FillPolygon(&icon_brush, next_triangle, 3);
+  {
+    float nextCenterX = next_x + button_size / 2.0f;
+    float nextCenterY = button_y + button_size / 2.0f;
+    Gdiplus::GraphicsState nextState = ApplyButtonRotation(graphics, is_vertical_, nextCenterX, nextCenterY);
+    Gdiplus::PointF next_triangle[3] = {
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.4f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.3f)),
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.4f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.7f)),
+      Gdiplus::PointF(static_cast<Gdiplus::REAL>(next_x + button_size * 0.65f), 
+                      static_cast<Gdiplus::REAL>(button_y + button_size * 0.5f))
+    };
+    graphics.FillPolygon(&icon_brush, next_triangle, 3);
+    graphics.Restore(nextState);
+  }
   
   // Second row of buttons (font size, color, translation toggle)
   int row2_y = button_y + button_size + 10;
@@ -1062,7 +1458,13 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
   Gdiplus::StringFormat center_format;
   center_format.SetAlignment(Gdiplus::StringAlignmentCenter);
   center_format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-  graphics.DrawString(L"A-", -1, &small_icon_font, font_down_rect_f, &center_format, &icon_brush);
+  {
+    float fontDownCenterX = font_down_x + small_btn_size / 2.0f;
+    float fontDownCenterY = row2_y + small_btn_size / 2.0f;
+    Gdiplus::GraphicsState fontDownState = ApplyButtonRotation(graphics, is_vertical_, fontDownCenterX, fontDownCenterY);
+    graphics.DrawString(L"A-", -1, &small_icon_font, font_down_rect_f, &center_format, &icon_brush);
+    graphics.Restore(fontDownState);
+  }
   
   // Font size up button (A+)
   int font_up_x = center_x - static_cast<int>(row2_spacing * 0.5f) - small_btn_size / 2;
@@ -1079,7 +1481,13 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                                  static_cast<Gdiplus::REAL>(row2_y), 
                                  static_cast<Gdiplus::REAL>(small_btn_size), 
                                  static_cast<Gdiplus::REAL>(small_btn_size));
-  graphics.DrawString(L"A+", -1, &small_icon_font, font_up_rect_f, &center_format, &icon_brush);
+  {
+    float fontUpCenterX = font_up_x + small_btn_size / 2.0f;
+    float fontUpCenterY = row2_y + small_btn_size / 2.0f;
+    Gdiplus::GraphicsState fontUpState = ApplyButtonRotation(graphics, is_vertical_, fontUpCenterX, fontUpCenterY);
+    graphics.DrawString(L"A+", -1, &small_icon_font, font_up_rect_f, &center_format, &icon_brush);
+    graphics.Restore(fontUpState);
+  }
   
   // Color picker button (palette icon - using colored circle)
   int color_x = center_x + static_cast<int>(row2_spacing * 0.5f) - small_btn_size / 2;
@@ -1125,5 +1533,39 @@ void DesktopLyricWindow::DrawControlPanel(HDC hdc, int width, int height) {
                                static_cast<Gdiplus::REAL>(small_btn_size), 
                                static_cast<Gdiplus::REAL>(small_btn_size));
   Gdiplus::SolidBrush trans_text_brush(Gdiplus::Color(255, 255, 255, 255));
-  graphics.DrawString(L"译", -1, &small_icon_font, trans_rect_f, &center_format, &trans_text_brush);
+  {
+    float transCenterX = trans_x + small_btn_size / 2.0f;
+    float transCenterY = row2_y + small_btn_size / 2.0f;
+    Gdiplus::GraphicsState transState = ApplyButtonRotation(graphics, is_vertical_, transCenterX, transCenterY);
+    graphics.DrawString(L"译", -1, &small_icon_font, trans_rect_f, &center_format, &trans_text_brush);
+    graphics.Restore(transState);
+  }
+  
+  // Vertical toggle button (竖/横)
+  int vert_x = center_x + static_cast<int>(row2_spacing * 2.5f) - small_btn_size / 2;
+  vertical_toggle_rect_.left = vert_x;
+  vertical_toggle_rect_.top = row2_y;
+  vertical_toggle_rect_.right = vert_x + small_btn_size;
+  vertical_toggle_rect_.bottom = row2_y + small_btn_size;
+  
+  // Use different color based on vertical state
+  Gdiplus::SolidBrush vert_btn_brush(is_vertical_ 
+      ? Gdiplus::Color(200, 100, 150, 200)   // Blue when vertical
+      : Gdiplus::Color(150, 128, 128, 128)); // Gray when horizontal
+  graphics.FillEllipse(&vert_btn_brush, static_cast<Gdiplus::REAL>(vert_x), 
+                       static_cast<Gdiplus::REAL>(row2_y), 
+                       static_cast<Gdiplus::REAL>(small_btn_size), 
+                       static_cast<Gdiplus::REAL>(small_btn_size));
+  Gdiplus::RectF vert_rect_f(static_cast<Gdiplus::REAL>(vert_x), 
+                              static_cast<Gdiplus::REAL>(row2_y), 
+                              static_cast<Gdiplus::REAL>(small_btn_size), 
+                              static_cast<Gdiplus::REAL>(small_btn_size));
+  Gdiplus::SolidBrush vert_text_brush(Gdiplus::Color(255, 255, 255, 255));
+  {
+    float vertCenterX = vert_x + small_btn_size / 2.0f;
+    float vertCenterY = row2_y + small_btn_size / 2.0f;
+    Gdiplus::GraphicsState vertState = ApplyButtonRotation(graphics, is_vertical_, vertCenterX, vertCenterY);
+    graphics.DrawString(is_vertical_ ? L"横" : L"竖", -1, &small_icon_font, vert_rect_f, &center_format, &vert_text_brush);
+    graphics.Restore(vertState);
+  }
 }

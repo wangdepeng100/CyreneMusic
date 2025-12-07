@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 import '../services/player_service.dart';
 import '../services/layout_preference_service.dart';
 import '../services/lyric_style_service.dart';
+import '../utils/theme_manager.dart';
 import '../models/lyric_line.dart';
 import '../models/track.dart';
 import '../models/song_detail.dart';
@@ -377,13 +379,11 @@ class _PlayerPageState extends State<PlayerPage> with WindowListener, TickerProv
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: ClipRRect(
-        borderRadius: _isMaximized 
-            ? BorderRadius.zero
-            : BorderRadius.circular(16),
-        child: Stack(
+    // 判断是否需要圆角裁剪（与主窗口逻辑保持一致）
+    final effectEnabled = Platform.isWindows && ThemeManager().windowEffect != WindowEffect.disabled;
+    final borderRadius = (_isMaximized || effectEnabled) ? BorderRadius.zero : BorderRadius.circular(12);
+    
+    Widget content = Stack(
           children: [
             // 主要内容区域 (根据样式切换)
             if (LyricStyleService().currentStyle == LyricStyle.fluidCloud)
@@ -479,8 +479,19 @@ class _PlayerPageState extends State<PlayerPage> with WindowListener, TickerProv
               onClose: _toggleControlCenter,
             ),
           ],
-        ),
-      ),
+        );
+    
+    // 仅在禁用窗口效果时应用圆角裁剪（与主窗口逻辑一致）
+    if (!effectEnabled) {
+      content = ClipRRect(
+        borderRadius: borderRadius,
+        child: content,
+      );
+    }
+    
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: content,
     );
   }
 }

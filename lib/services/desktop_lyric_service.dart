@@ -34,6 +34,7 @@ class DesktopLyricService {
   static const String _keyDraggable = 'desktop_lyric_draggable';
   static const String _keyMouseTransparent = 'desktop_lyric_mouse_transparent';
   static const String _keyShowTranslation = 'desktop_lyric_show_translation';
+  static const String _keyIsVertical = 'desktop_lyric_is_vertical';
 
   bool _isCreated = false;
   bool _isVisible = false;
@@ -48,6 +49,7 @@ class DesktopLyricService {
   bool _isDraggable = true;
   bool _isMouseTransparent = false;
   bool _showTranslation = true;
+  bool _isVertical = false; // 纵向排列
 
   /// 初始化服务（加载配置）
   Future<void> initialize() async {
@@ -67,6 +69,7 @@ class DesktopLyricService {
       _isDraggable = prefs.getBool(_keyDraggable) ?? true;
       _isMouseTransparent = prefs.getBool(_keyMouseTransparent) ?? false;
       _showTranslation = prefs.getBool(_keyShowTranslation) ?? true;
+      _isVertical = prefs.getBool(_keyIsVertical) ?? false;
 
       // 延迟创建窗口，确保不阻塞主窗口启动
       Future.delayed(Duration(milliseconds: 500), () async {
@@ -82,6 +85,7 @@ class DesktopLyricService {
           await setDraggable(_isDraggable, saveToPrefs: false);
           await setMouseTransparent(_isMouseTransparent, saveToPrefs: false);
           await setShowTranslation(_showTranslation, saveToPrefs: false);
+          await setVertical(_isVertical, saveToPrefs: false);
 
           // 恢复位置
           final x = prefs.getInt(_keyPositionX);
@@ -385,6 +389,7 @@ class DesktopLyricService {
     'isDraggable': _isDraggable,
     'isMouseTransparent': _isMouseTransparent,
     'showTranslation': _showTranslation,
+    'isVertical': _isVertical,
   };
 
   /// 获取字体大小
@@ -398,6 +403,9 @@ class DesktopLyricService {
 
   /// 获取是否显示翻译
   bool get showTranslation => _showTranslation;
+
+  /// 获取是否纵向排列
+  bool get isVertical => _isVertical;
 
   /// 设置翻译文本
   Future<void> setTranslationText(String text) async {
@@ -436,6 +444,29 @@ class DesktopLyricService {
   /// 切换显示翻译
   Future<void> toggleShowTranslation() async {
     await setShowTranslation(!_showTranslation);
+  }
+
+  /// 设置是否纵向排列
+  Future<void> setVertical(bool vertical, {bool saveToPrefs = true}) async {
+    if (!Platform.isWindows || !_isCreated) return;
+
+    _isVertical = vertical;
+
+    try {
+      await _channel.invokeMethod('setVertical', {'vertical': vertical});
+      
+      if (saveToPrefs) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_keyIsVertical, vertical);
+      }
+    } catch (e) {
+      print('❌ [DesktopLyric] 设置纵向排列失败: $e');
+    }
+  }
+
+  /// 切换纵向/横向排列
+  Future<void> toggleVertical() async {
+    await setVertical(!_isVertical);
   }
 
   // 预设颜色列表
@@ -519,6 +550,11 @@ class DesktopLyricService {
         // 关闭悬浮窗
         await hide();
         print('✅ [DesktopLyric] 悬浮窗已关闭');
+        break;
+      case 'toggle_vertical':
+        // 切换纵向/横向排列
+        await toggleVertical();
+        print('✅ [DesktopLyric] 排列方向: ${_isVertical ? "纵向" : "横向"}');
         break;
       default:
         print('⚠️ [DesktopLyric] 未知动作: $action');

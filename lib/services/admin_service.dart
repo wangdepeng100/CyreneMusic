@@ -131,6 +131,176 @@ class TrendData {
   }
 }
 
+/// 赞助记录数据模型
+class DonationData {
+  final int id;
+  final double amount;
+  final String paymentType;
+  final int status; // 0=未支付, 1=已支付
+  final String? outTradeNo;
+  final String? tradeNo;
+  final String? paidAt;
+  final String createdAt;
+
+  DonationData({
+    required this.id,
+    required this.amount,
+    required this.paymentType,
+    required this.status,
+    this.outTradeNo,
+    this.tradeNo,
+    this.paidAt,
+    required this.createdAt,
+  });
+
+  factory DonationData.fromJson(Map<String, dynamic> json) {
+    return DonationData(
+      id: json['id'],
+      amount: (json['amount'] as num).toDouble(),
+      paymentType: json['paymentType'] ?? 'unknown',
+      status: json['status'] ?? 0,
+      outTradeNo: json['outTradeNo'],
+      tradeNo: json['tradeNo'],
+      paidAt: json['paidAt'],
+      createdAt: json['createdAt'] ?? '',
+    );
+  }
+
+  bool get isPaid => status == 1;
+
+  String get statusText => isPaid ? '已支付' : '未支付';
+
+  String get paymentTypeText {
+    switch (paymentType) {
+      case 'alipay':
+        return '支付宝';
+      case 'wxpay':
+        return '微信支付';
+      case 'manual':
+        return '手动添加';
+      default:
+        return paymentType;
+    }
+  }
+}
+
+/// 用户赞助详情
+class UserSponsorDetails {
+  final int userId;
+  final String username;
+  final bool isSponsor;
+  final String? sponsorSince;
+  final double totalAmount;
+  final List<DonationData> donations;
+
+  UserSponsorDetails({
+    required this.userId,
+    required this.username,
+    required this.isSponsor,
+    this.sponsorSince,
+    required this.totalAmount,
+    required this.donations,
+  });
+
+  factory UserSponsorDetails.fromJson(Map<String, dynamic> json) {
+    return UserSponsorDetails(
+      userId: json['userId'],
+      username: json['username'] ?? '',
+      isSponsor: json['isSponsor'] ?? false,
+      sponsorSince: json['sponsorSince'],
+      totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
+      donations: (json['donations'] as List?)
+              ?.map((d) => DonationData.fromJson(d))
+              .toList() ??
+          [],
+    );
+  }
+}
+
+/// 赞助排行榜项
+class SponsorRankingItem {
+  final int rank;
+  final int userId;
+  final String username;
+  final String email;
+  final String? avatarUrl;
+  final bool isSponsor;
+  final String? sponsorSince;
+  final double totalAmount;
+  final int donationCount;
+  final String? lastDonationAt;
+
+  SponsorRankingItem({
+    required this.rank,
+    required this.userId,
+    required this.username,
+    required this.email,
+    this.avatarUrl,
+    required this.isSponsor,
+    this.sponsorSince,
+    required this.totalAmount,
+    required this.donationCount,
+    this.lastDonationAt,
+  });
+
+  factory SponsorRankingItem.fromJson(Map<String, dynamic> json) {
+    return SponsorRankingItem(
+      rank: json['rank'] ?? 0,
+      userId: json['userId'],
+      username: json['username'] ?? '',
+      email: json['email'] ?? '',
+      avatarUrl: json['avatarUrl'],
+      isSponsor: json['isSponsor'] ?? false,
+      sponsorSince: json['sponsorSince'],
+      totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
+      donationCount: json['donationCount'] ?? 0,
+      lastDonationAt: json['lastDonationAt'],
+    );
+  }
+}
+
+/// 赞助排行榜汇总
+class SponsorRankingSummary {
+  final int totalSponsors;
+  final double totalDonations;
+  final int totalUsers;
+
+  SponsorRankingSummary({
+    required this.totalSponsors,
+    required this.totalDonations,
+    required this.totalUsers,
+  });
+
+  factory SponsorRankingSummary.fromJson(Map<String, dynamic> json) {
+    return SponsorRankingSummary(
+      totalSponsors: json['totalSponsors'] ?? 0,
+      totalDonations: (json['totalDonations'] as num?)?.toDouble() ?? 0.0,
+      totalUsers: json['totalUsers'] ?? 0,
+    );
+  }
+}
+
+/// 赞助排行榜数据
+class SponsorRankingData {
+  final List<SponsorRankingItem> ranking;
+  final SponsorRankingSummary summary;
+
+  SponsorRankingData({
+    required this.ranking,
+    required this.summary,
+  });
+
+  factory SponsorRankingData.fromJson(Map<String, dynamic> json) {
+    return SponsorRankingData(
+      ranking: (json['ranking'] as List?)
+              ?.map((r) => SponsorRankingItem.fromJson(r))
+              .toList() ??
+          [],
+      summary: SponsorRankingSummary.fromJson(json['summary'] ?? {}),
+    );
+  }
+}
+
 /// 管理员服务
 class AdminService extends ChangeNotifier {
   static final AdminService _instance = AdminService._internal();
@@ -425,6 +595,212 @@ class AdminService extends ChangeNotifier {
     } catch (e) {
       print('❌ [AdminService] 删除用户异常: $e');
       return false;
+    }
+  }
+
+  /// 获取用户赞助详情
+  Future<UserSponsorDetails?> fetchUserSponsorDetails(int userId) async {
+    if (!_isAuthenticated || _adminToken == null) {
+      print('⚠️ [AdminService] 未登录，无法获取赞助详情');
+      return null;
+    }
+
+    print('👑 [AdminService] 获取用户赞助详情 ID: $userId');
+
+    try {
+      final url = '${UrlService().baseUrl}/admin/sponsors/$userId';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_adminToken',
+        },
+      );
+
+      print('📥 [AdminService] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        return null;
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['data'] != null) {
+        print('✅ [AdminService] 获取赞助详情成功');
+        return UserSponsorDetails.fromJson(data['data']);
+      } else {
+        print('❌ [AdminService] 获取赞助详情失败: ${data['message']}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ [AdminService] 获取赞助详情异常: $e');
+      return null;
+    }
+  }
+
+  /// 更新用户赞助状态
+  Future<bool> updateSponsorStatus(int userId, bool isSponsor) async {
+    if (!_isAuthenticated || _adminToken == null) {
+      print('⚠️ [AdminService] 未登录，无法更新赞助状态');
+      return false;
+    }
+
+    print('👑 [AdminService] 更新用户赞助状态 ID: $userId, isSponsor: $isSponsor');
+
+    try {
+      final url = '${UrlService().baseUrl}/admin/sponsors/$userId';
+      final response = await http.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_adminToken',
+        },
+        body: jsonEncode({'isSponsor': isSponsor}),
+      );
+
+      print('📥 [AdminService] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        print('✅ [AdminService] 赞助状态已更新');
+        return true;
+      } else {
+        print('❌ [AdminService] 更新失败: ${data['message']}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ [AdminService] 更新赞助状态异常: $e');
+      return false;
+    }
+  }
+
+  /// 手动添加赞助记录
+  Future<bool> addManualDonation(int userId, double amount, {String paymentType = 'manual'}) async {
+    if (!_isAuthenticated || _adminToken == null) {
+      print('⚠️ [AdminService] 未登录，无法添加赞助记录');
+      return false;
+    }
+
+    print('👑 [AdminService] 添加赞助记录 userId: $userId, amount: $amount');
+
+    try {
+      final url = '${UrlService().baseUrl}/admin/sponsors/$userId/donation';
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_adminToken',
+        },
+        body: jsonEncode({
+          'amount': amount,
+          'paymentType': paymentType,
+          'markAsPaid': true,
+        }),
+      );
+
+      print('📥 [AdminService] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        print('✅ [AdminService] 赞助记录已添加');
+        return true;
+      } else {
+        print('❌ [AdminService] 添加失败: ${data['message']}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ [AdminService] 添加赞助记录异常: $e');
+      return false;
+    }
+  }
+
+  /// 删除赞助记录
+  Future<bool> deleteDonation(int donationId) async {
+    if (!_isAuthenticated || _adminToken == null) {
+      print('⚠️ [AdminService] 未登录，无法删除赞助记录');
+      return false;
+    }
+
+    print('👑 [AdminService] 删除赞助记录 ID: $donationId');
+
+    try {
+      final url = '${UrlService().baseUrl}/admin/donations/$donationId';
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_adminToken',
+        },
+      );
+
+      print('📥 [AdminService] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        print('✅ [AdminService] 赞助记录已删除');
+        return true;
+      } else {
+        print('❌ [AdminService] 删除失败: ${data['message']}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ [AdminService] 删除赞助记录异常: $e');
+      return false;
+    }
+  }
+
+  /// 获取赞助排行榜
+  Future<SponsorRankingData?> fetchSponsorRanking() async {
+    if (!_isAuthenticated || _adminToken == null) {
+      print('⚠️ [AdminService] 未登录，无法获取赞助排行榜');
+      return null;
+    }
+
+    print('👑 [AdminService] 获取赞助排行榜');
+
+    try {
+      final url = '${UrlService().baseUrl}/admin/sponsors/ranking';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_adminToken',
+        },
+      );
+
+      print('📥 [AdminService] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        return null;
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['data'] != null) {
+        print('✅ [AdminService] 获取赞助排行榜成功');
+        return SponsorRankingData.fromJson(data['data']);
+      } else {
+        print('❌ [AdminService] 获取赞助排行榜失败: ${data['message']}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ [AdminService] 获取赞助排行榜异常: $e');
+      return null;
     }
   }
 }

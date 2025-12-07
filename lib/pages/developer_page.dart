@@ -348,7 +348,7 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
   /// 构建管理员面板
   Widget _buildAdminPanel() {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Column(
         children: [
           Container(
@@ -358,6 +358,7 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
                 TabBar(
                   tabs: const [
                     Tab(text: '用户列表', icon: Icon(Icons.people)),
+                    Tab(text: '赞助排行', icon: Icon(Icons.leaderboard)),
                     Tab(text: '统计数据', icon: Icon(Icons.bar_chart)),
                   ],
                 ),
@@ -423,6 +424,7 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
             child: TabBarView(
               children: [
                 _buildUsersTab(),
+                _buildSponsorRankingTab(),
                 _buildStatsTab(),
               ],
             ),
@@ -512,6 +514,11 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
                   const Icon(Icons.verified, color: Colors.green, size: 16),
                 const SizedBox(width: 8),
                 IconButton(
+                  icon: const Icon(Icons.favorite, color: Colors.pink),
+                  tooltip: '赞助管理',
+                  onPressed: () => _showSponsorDialog(user),
+                ),
+                IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
                   tooltip: '删除用户',
                   onPressed: () => _confirmDeleteUser(user),
@@ -540,6 +547,258 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
           ),
         );
       },
+    );
+  }
+
+  /// 构建赞助排行榜标签页
+  Widget _buildSponsorRankingTab() {
+    return FutureBuilder<SponsorRankingData?>(
+      future: AdminService().fetchSponsorRanking(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final data = snapshot.data;
+        if (data == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const SizedBox(height: 16),
+                const Text('加载赞助排行榜失败'),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重试'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // 汇总卡片
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.leaderboard, color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '赞助汇总',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStatCard('总赞助金额', '¥${data.summary.totalDonations.toStringAsFixed(2)}', Icons.attach_money),
+                        _buildStatCard('赞助用户', data.summary.totalSponsors.toString(), Icons.verified),
+                        _buildStatCard('参与人数', data.summary.totalUsers.toString(), Icons.people),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 排行榜列表
+            Text(
+              '赞助排行榜',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            if (data.ranking.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('暂无赞助记录', style: TextStyle(color: Colors.grey)),
+                ),
+              )
+            else
+              ...data.ranking.map((item) => _buildRankingItem(item)),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 构建排行榜项
+  Widget _buildRankingItem(SponsorRankingItem item) {
+    // 前三名使用金银铜色
+    Color? rankColor;
+    IconData rankIcon = Icons.emoji_events;
+    if (item.rank == 1) {
+      rankColor = const Color(0xFFFFD700); // 金
+    } else if (item.rank == 2) {
+      rankColor = const Color(0xFFC0C0C0); // 银
+    } else if (item.rank == 3) {
+      rankColor = const Color(0xFFCD7F32); // 铜
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 排名
+            SizedBox(
+              width: 40,
+              child: item.rank <= 3
+                  ? Icon(rankIcon, color: rankColor, size: 28)
+                  : Text(
+                      '#${item.rank}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+            ),
+            const SizedBox(width: 8),
+            // 头像
+            CircleAvatar(
+              radius: 20,
+              backgroundImage: item.avatarUrl != null ? NetworkImage(item.avatarUrl!) : null,
+              child: item.avatarUrl == null ? Text(item.username[0].toUpperCase()) : null,
+            ),
+          ],
+        ),
+        title: Row(
+          children: [
+            Text(item.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (item.isSponsor) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.verified, color: Colors.amber, size: 16),
+            ],
+          ],
+        ),
+        subtitle: Text('赞助 ${item.donationCount} 次 · ${_formatDateTime(item.lastDonationAt)}'),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '¥${item.totalAmount.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        onTap: () => _showSponsorDialogFromRanking(item),
+      ),
+    );
+  }
+
+  /// 从排行榜项打开赞助详情
+  void _showSponsorDialogFromRanking(SponsorRankingItem item) async {
+    final details = await AdminService().fetchUserSponsorDetails(item.userId);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.favorite, color: Colors.pink),
+            const SizedBox(width: 8),
+            Expanded(child: Text('赞助详情 - ${item.username}')),
+          ],
+        ),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 用户信息
+                Card(
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage: item.avatarUrl != null ? NetworkImage(item.avatarUrl!) : null,
+                      child: item.avatarUrl == null ? Text(item.username[0].toUpperCase()) : null,
+                    ),
+                    title: Row(
+                      children: [
+                        Text(item.username),
+                        if (item.isSponsor) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.verified, color: Colors.amber, size: 16),
+                        ],
+                      ],
+                    ),
+                    subtitle: Text(item.email),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // 赞助统计
+                _buildUserInfoRow('排名', '#${item.rank}'),
+                _buildUserInfoRow('累计赞助', '¥${item.totalAmount.toStringAsFixed(2)}'),
+                _buildUserInfoRow('赞助次数', '${item.donationCount} 次'),
+                if (item.sponsorSince != null)
+                  _buildUserInfoRow('赞助时间', _formatDateTime(item.sponsorSince)),
+                const SizedBox(height: 16),
+
+                // 赞助记录
+                Text(
+                  '赞助记录 (${details?.donations.length ?? 0})',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                if (details?.donations.isEmpty ?? true)
+                  const Text('暂无赞助记录', style: TextStyle(color: Colors.grey))
+                else
+                  ...details!.donations.map((donation) => Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: Icon(
+                            donation.isPaid ? Icons.check_circle : Icons.pending,
+                            color: donation.isPaid ? Colors.green : Colors.orange,
+                          ),
+                          title: Text('¥${donation.amount.toStringAsFixed(2)}'),
+                          subtitle: Text(
+                            '${donation.paymentTypeText} · ${donation.statusText}\n${_formatDateTime(donation.paidAt ?? donation.createdAt)}',
+                          ),
+                          isThreeLine: true,
+                        ),
+                      )),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -843,6 +1102,219 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
             child: const Text('删除'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 显示赞助管理对话框
+  void _showSponsorDialog(AdminUserData user) async {
+    // 先获取用户赞助详情
+    final details = await AdminService().fetchUserSponsorDetails(user.id);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.favorite, color: Colors.pink),
+                const SizedBox(width: 8),
+                Text('赞助管理 - ${user.username}'),
+              ],
+            ),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 赞助状态
+                    Card(
+                      child: ListTile(
+                        leading: Icon(
+                          details?.isSponsor == true ? Icons.verified : Icons.cancel,
+                          color: details?.isSponsor == true ? Colors.amber : Colors.grey,
+                        ),
+                        title: Text(details?.isSponsor == true ? '赞助用户' : '非赞助用户'),
+                        subtitle: details?.sponsorSince != null
+                            ? Text('赞助时间: ${_formatDateTime(details!.sponsorSince)}')
+                            : null,
+                        trailing: Switch.adaptive(
+                          value: details?.isSponsor ?? false,
+                          onChanged: (value) async {
+                            final success = await AdminService().updateSponsorStatus(user.id, value);
+                            if (success && mounted) {
+                              // 刷新详情
+                              final newDetails = await AdminService().fetchUserSponsorDetails(user.id);
+                              setDialogState(() {
+                                // 用新数据
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(value ? '已设为赞助用户' : '已取消赞助状态'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                              Navigator.pop(context);
+                              _showSponsorDialog(user); // 重新打开对话框以刷新数据
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 累计赞助金额
+                    _buildUserInfoRow('累计赞助金额', '¥${details?.totalAmount.toStringAsFixed(2) ?? "0.00"}'),
+                    const SizedBox(height: 16),
+
+                    // 赞助记录列表
+                    Text(
+                      '赞助记录 (${details?.donations.length ?? 0})',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (details?.donations.isEmpty ?? true)
+                      const Text('暂无赞助记录', style: TextStyle(color: Colors.grey))
+                    else
+                      ...details!.donations.map((donation) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              leading: Icon(
+                                donation.isPaid ? Icons.check_circle : Icons.pending,
+                                color: donation.isPaid ? Colors.green : Colors.orange,
+                              ),
+                              title: Text('¥${donation.amount.toStringAsFixed(2)}'),
+                              subtitle: Text(
+                                '${donation.paymentTypeText} · ${donation.statusText}\n${_formatDateTime(donation.paidAt ?? donation.createdAt)}',
+                              ),
+                              isThreeLine: true,
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                tooltip: '删除记录',
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('删除赞助记录'),
+                                      content: Text('确定要删除这笔 ¥${donation.amount.toStringAsFixed(2)} 的赞助记录吗？'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('取消'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Theme.of(context).colorScheme.error,
+                                          ),
+                                          child: const Text('删除'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    final success = await AdminService().deleteDonation(donation.id);
+                                    if (success && mounted) {
+                                      Navigator.pop(context);
+                                      _showSponsorDialog(user); // 重新打开对话框
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                          )),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+              FilledButton.icon(
+                onPressed: () => _showAddDonationDialog(user),
+                icon: const Icon(Icons.add),
+                label: const Text('添加赞助'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 显示添加赞助对话框
+  void _showAddDonationDialog(AdminUserData user) {
+    final amountController = TextEditingController();
+    String? errorText;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text('为 ${user.username} 添加赞助'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: '赞助金额 (元)',
+                    prefixText: '¥ ',
+                    errorText: errorText,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '添加后将自动标记为已支付，并将用户设为赞助用户',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final amountStr = amountController.text.trim();
+                  final amount = double.tryParse(amountStr);
+                  if (amount == null || amount <= 0) {
+                    setDialogState(() => errorText = '请输入有效金额');
+                    return;
+                  }
+
+                  final success = await AdminService().addManualDonation(user.id, amount);
+                  if (mounted) {
+                    Navigator.pop(context); // 关闭添加对话框
+                    Navigator.pop(context); // 关闭赞助管理对话框
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(success ? '赞助记录已添加' : '添加失败'),
+                        backgroundColor: success ? Colors.green : Theme.of(context).colorScheme.error,
+                      ),
+                    );
+                    if (success) {
+                      _showSponsorDialog(user); // 重新打开赞助管理对话框
+                    }
+                  }
+                },
+                child: const Text('确认添加'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1388,6 +1860,11 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
                 body: _buildFluentUsersTab(),
               ),
               fluent.Tab(
+                text: const Text('赞助排行'),
+                icon: const Icon(fluent.FluentIcons.trophy2),
+                body: _buildFluentSponsorRankingTab(),
+              ),
+              fluent.Tab(
                 text: const Text('统计数据'),
                 icon: const Icon(fluent.FluentIcons.chart),
                 body: _buildFluentStatsTab(),
@@ -1473,12 +1950,28 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
                 _buildUserInfoRow('IP归属地', user.lastIpLocation ?? '未知'),
                 _buildUserInfoRow('IP更新时间', _formatDateTime(user.lastIpUpdatedAt)),
                 const SizedBox(height: 16),
-                fluent.Button(
-                  style: fluent.ButtonStyle(
-                    foregroundColor: fluent.ButtonState.all(fluent.Colors.red),
-                  ),
-                  onPressed: () => _confirmFluentDeleteUser(user),
-                  child: const Text('删除用户'),
+                Row(
+                  children: [
+                    fluent.Button(
+                      onPressed: () => _showFluentSponsorDialog(user),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(fluent.FluentIcons.heart, size: 16, color: Colors.pink),
+                          SizedBox(width: 8),
+                          Text('赞助管理'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    fluent.Button(
+                      style: fluent.ButtonStyle(
+                        foregroundColor: fluent.ButtonState.all(fluent.Colors.red),
+                      ),
+                      onPressed: () => _confirmFluentDeleteUser(user),
+                      child: const Text('删除用户'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1511,6 +2004,498 @@ class _DeveloperPageState extends State<DeveloperPage> with SingleTickerProvider
               }
             },
             child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示 Fluent UI 赞助管理对话框
+  void _showFluentSponsorDialog(AdminUserData user) async {
+    final details = await AdminService().fetchUserSponsorDetails(user.id);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => fluent.ContentDialog(
+        title: Row(
+          children: [
+            const Icon(fluent.FluentIcons.heart, color: Colors.pink),
+            const SizedBox(width: 8),
+            Text('赞助管理 - ${user.username}'),
+          ],
+        ),
+        content: SizedBox(
+          width: 450,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 赞助状态卡片
+                fluent.Card(
+                  child: Row(
+                    children: [
+                      Icon(
+                        details?.isSponsor == true ? fluent.FluentIcons.verified_brand : fluent.FluentIcons.cancel,
+                        color: details?.isSponsor == true ? fluent.Colors.orange : fluent.Colors.grey,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              details?.isSponsor == true ? '赞助用户' : '非赞助用户',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            if (details?.sponsorSince != null)
+                              Text(
+                                '赞助时间: ${_formatDateTime(details!.sponsorSince)}',
+                                style: fluent.FluentTheme.of(context).typography.caption,
+                              ),
+                          ],
+                        ),
+                      ),
+                      fluent.ToggleSwitch(
+                        checked: details?.isSponsor ?? false,
+                        onChanged: (value) async {
+                          final success = await AdminService().updateSponsorStatus(user.id, value);
+                          if (success && mounted) {
+                            Navigator.pop(context);
+                            _showFluentSnackbar(value ? '已设为赞助用户' : '已取消赞助状态');
+                            _showFluentSponsorDialog(user);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // 累计金额
+                _buildUserInfoRow('累计赞助金额', '¥${details?.totalAmount.toStringAsFixed(2) ?? "0.00"}'),
+                const SizedBox(height: 16),
+
+                // 赞助记录
+                Text(
+                  '赞助记录 (${details?.donations.length ?? 0})',
+                  style: fluent.FluentTheme.of(context).typography.bodyStrong,
+                ),
+                const SizedBox(height: 8),
+                if (details?.donations.isEmpty ?? true)
+                  Text('暂无赞助记录', style: fluent.FluentTheme.of(context).typography.caption)
+                else
+                  ...details!.donations.map((donation) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: fluent.Card(
+                          child: Row(
+                            children: [
+                              Icon(
+                                donation.isPaid ? fluent.FluentIcons.check_mark : fluent.FluentIcons.clock,
+                                color: donation.isPaid ? fluent.Colors.green : fluent.Colors.orange,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '¥${donation.amount.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      '${donation.paymentTypeText} · ${donation.statusText}',
+                                      style: fluent.FluentTheme.of(context).typography.caption,
+                                    ),
+                                    Text(
+                                      _formatDateTime(donation.paidAt ?? donation.createdAt),
+                                      style: fluent.FluentTheme.of(context).typography.caption,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              fluent.IconButton(
+                                icon: Icon(fluent.FluentIcons.delete, color: fluent.Colors.red, size: 16),
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => fluent.ContentDialog(
+                                      title: const Text('删除赞助记录'),
+                                      content: Text('确定要删除这笔 ¥${donation.amount.toStringAsFixed(2)} 的赞助记录吗？'),
+                                      actions: [
+                                        fluent.Button(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('取消'),
+                                        ),
+                                        fluent.FilledButton(
+                                          style: fluent.ButtonStyle(
+                                            backgroundColor: fluent.ButtonState.all(fluent.Colors.red),
+                                          ),
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          child: const Text('删除'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    final success = await AdminService().deleteDonation(donation.id);
+                                    if (success && mounted) {
+                                      Navigator.pop(context);
+                                      _showFluentSponsorDialog(user);
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          fluent.Button(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+          fluent.FilledButton(
+            onPressed: () => _showFluentAddDonationDialog(user),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(fluent.FluentIcons.add, size: 16),
+                SizedBox(width: 8),
+                Text('添加赞助'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示 Fluent UI 添加赞助对话框
+  void _showFluentAddDonationDialog(AdminUserData user) {
+    final amountController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          String? errorText;
+          return fluent.ContentDialog(
+            title: Text('为 ${user.username} 添加赞助'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                fluent.TextBox(
+                  controller: amountController,
+                  placeholder: '赞助金额 (元)',
+                  prefix: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text('¥'),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                if (errorText != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(errorText!, style: TextStyle(color: fluent.Colors.red, fontSize: 12)),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  '添加后将自动标记为已支付，并将用户设为赞助用户',
+                  style: fluent.FluentTheme.of(context).typography.caption,
+                ),
+              ],
+            ),
+            actions: [
+              fluent.Button(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              fluent.FilledButton(
+                onPressed: () async {
+                  final amountStr = amountController.text.trim();
+                  final amount = double.tryParse(amountStr);
+                  if (amount == null || amount <= 0) {
+                    setDialogState(() => errorText = '请输入有效金额');
+                    return;
+                  }
+
+                  final success = await AdminService().addManualDonation(user.id, amount);
+                  if (mounted) {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    _showFluentSnackbar(success ? '赞助记录已添加' : '添加失败');
+                    if (success) {
+                      _showFluentSponsorDialog(user);
+                    }
+                  }
+                },
+                child: const Text('确认添加'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 构建 Fluent UI 赞助排行榜标签页
+  Widget _buildFluentSponsorRankingTab() {
+    return FutureBuilder<SponsorRankingData?>(
+      future: AdminService().fetchSponsorRanking(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: fluent.ProgressRing());
+        }
+
+        final data = snapshot.data;
+        if (data == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(fluent.FluentIcons.error, size: 48, color: fluent.Colors.grey),
+                const SizedBox(height: 16),
+                const Text('加载赞助排行榜失败'),
+                const SizedBox(height: 16),
+                fluent.FilledButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('重试'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // 汇总卡片
+            fluent.Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(fluent.FluentIcons.trophy2, color: fluent.Colors.orange),
+                      const SizedBox(width: 8),
+                      Text('赞助汇总', style: fluent.FluentTheme.of(context).typography.subtitle),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildFluentStatCard('总赞助金额', '¥${data.summary.totalDonations.toStringAsFixed(2)}', fluent.FluentIcons.money),
+                      _buildFluentStatCard('赞助用户', data.summary.totalSponsors.toString(), fluent.FluentIcons.verified_brand),
+                      _buildFluentStatCard('参与人数', data.summary.totalUsers.toString(), fluent.FluentIcons.people),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 排行榜标题
+            Text('赞助排行榜', style: fluent.FluentTheme.of(context).typography.bodyStrong),
+            const SizedBox(height: 8),
+
+            if (data.ranking.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('暂无赞助记录', style: TextStyle(color: Colors.grey)),
+                ),
+              )
+            else
+              ...data.ranking.map((item) => _buildFluentRankingItem(item)),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 构建 Fluent UI 排行榜项
+  Widget _buildFluentRankingItem(SponsorRankingItem item) {
+    Color? rankColor;
+    if (item.rank == 1) {
+      rankColor = const Color(0xFFFFD700);
+    } else if (item.rank == 2) {
+      rankColor = const Color(0xFFC0C0C0);
+    } else if (item.rank == 3) {
+      rankColor = const Color(0xFFCD7F32);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: fluent.Card(
+        child: fluent.ListTile.selectable(
+          leading: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 36,
+                child: item.rank <= 3
+                    ? Icon(fluent.FluentIcons.trophy2, color: rankColor, size: 24)
+                    : Text(
+                        '#${item.rank}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(
+                radius: 18,
+                backgroundImage: item.avatarUrl != null ? NetworkImage(item.avatarUrl!) : null,
+                child: item.avatarUrl == null ? Text(item.username[0].toUpperCase()) : null,
+              ),
+            ],
+          ),
+          title: Row(
+            children: [
+              Text(item.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (item.isSponsor) ...[
+                const SizedBox(width: 4),
+                Icon(fluent.FluentIcons.verified_brand, color: fluent.Colors.orange, size: 14),
+              ],
+            ],
+          ),
+          subtitle: Text(
+            '赞助 ${item.donationCount} 次 · ${_formatDateTime(item.lastDonationAt)}',
+            style: fluent.FluentTheme.of(context).typography.caption,
+          ),
+          trailing: Text(
+            '¥${item.totalAmount.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: fluent.Colors.orange,
+            ),
+          ),
+          onPressed: () => _showFluentSponsorDialogFromRanking(item),
+        ),
+      ),
+    );
+  }
+
+  /// Fluent UI 从排行榜打开赞助详情
+  void _showFluentSponsorDialogFromRanking(SponsorRankingItem item) async {
+    final details = await AdminService().fetchUserSponsorDetails(item.userId);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => fluent.ContentDialog(
+        title: Row(
+          children: [
+            const Icon(fluent.FluentIcons.heart, color: Colors.pink),
+            const SizedBox(width: 8),
+            Expanded(child: Text('赞助详情 - ${item.username}')),
+          ],
+        ),
+        content: SizedBox(
+          width: 450,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 用户信息卡片
+                fluent.Card(
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundImage: item.avatarUrl != null ? NetworkImage(item.avatarUrl!) : null,
+                        child: item.avatarUrl == null ? Text(item.username[0].toUpperCase()) : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(item.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                if (item.isSponsor) ...[
+                                  const SizedBox(width: 4),
+                                  Icon(fluent.FluentIcons.verified_brand, color: fluent.Colors.orange, size: 14),
+                                ],
+                              ],
+                            ),
+                            Text(item.email, style: fluent.FluentTheme.of(context).typography.caption),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // 赞助统计
+                _buildUserInfoRow('排名', '#${item.rank}'),
+                _buildUserInfoRow('累计赞助', '¥${item.totalAmount.toStringAsFixed(2)}'),
+                _buildUserInfoRow('赞助次数', '${item.donationCount} 次'),
+                if (item.sponsorSince != null)
+                  _buildUserInfoRow('赞助时间', _formatDateTime(item.sponsorSince)),
+                const SizedBox(height: 16),
+
+                // 赞助记录
+                Text('赞助记录 (${details?.donations.length ?? 0})', style: fluent.FluentTheme.of(context).typography.bodyStrong),
+                const SizedBox(height: 8),
+                if (details?.donations.isEmpty ?? true)
+                  Text('暂无赞助记录', style: fluent.FluentTheme.of(context).typography.caption)
+                else
+                  ...details!.donations.map((donation) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: fluent.Card(
+                          child: Row(
+                            children: [
+                              Icon(
+                                donation.isPaid ? fluent.FluentIcons.check_mark : fluent.FluentIcons.clock,
+                                color: donation.isPaid ? fluent.Colors.green : fluent.Colors.orange,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('¥${donation.amount.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    Text(
+                                      '${donation.paymentTypeText} · ${donation.statusText}',
+                                      style: fluent.FluentTheme.of(context).typography.caption,
+                                    ),
+                                    Text(
+                                      _formatDateTime(donation.paidAt ?? donation.createdAt),
+                                      style: fluent.FluentTheme.of(context).typography.caption,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          fluent.Button(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
           ),
         ],
       ),

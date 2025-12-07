@@ -19,6 +19,7 @@ class UserCard extends StatefulWidget {
 
 class _UserCardState extends State<UserCard> {
   bool _isSponsor = false;
+  int? _sponsorRank; // 赞助排名：1=金牌，2=银牌，3=铜牌，其他=赞助用户
   bool _loadingSponsorStatus = false;
   final TextEditingController _usernameController = TextEditingController();
   bool _isUpdatingUsername = false;
@@ -923,6 +924,7 @@ class _UserCardState extends State<UserCard> {
     if (user == null) {
       setState(() {
         _isSponsor = false;
+        _sponsorRank = null;
         _loadingSponsorStatus = false;
       });
       return;
@@ -936,12 +938,14 @@ class _UserCardState extends State<UserCard> {
         final data = result['data'] as Map<String, dynamic>;
         setState(() {
           _isSponsor = data['isSponsor'] == true;
+          _sponsorRank = data['sponsorRank'] as int?;
           _loadingSponsorStatus = false;
         });
-        print('[UserCard] 赞助状态: $_isSponsor');
+        print('[UserCard] 赞助状态: $_isSponsor, 排名: $_sponsorRank');
       } else {
         setState(() {
           _isSponsor = false;
+          _sponsorRank = null;
           _loadingSponsorStatus = false;
         });
       }
@@ -949,9 +953,26 @@ class _UserCardState extends State<UserCard> {
       print('[UserCard] 查询赞助状态失败: $e');
       setState(() {
         _isSponsor = false;
+        _sponsorRank = null;
         _loadingSponsorStatus = false;
       });
     }
+  }
+
+  /// 获取赞助标识文字
+  String _getSponsorBadgeText() {
+    if (_sponsorRank == 1) return '金牌赞助';
+    if (_sponsorRank == 2) return '银牌赞助';
+    if (_sponsorRank == 3) return '铜牌赞助';
+    return '赞助用户';
+  }
+
+  /// 获取赞助标识渐变色
+  List<Color> _getSponsorBadgeColors() {
+    if (_sponsorRank == 1) return [const Color(0xFFFFD700), const Color(0xFFFFA500)]; // 金
+    if (_sponsorRank == 2) return [const Color(0xFFC0C0C0), const Color(0xFF808080)]; // 银
+    if (_sponsorRank == 3) return [const Color(0xFFCD7F32), const Color(0xFF8B4513)]; // 铜
+    return [const Color(0xFF6366F1), const Color(0xFF8B5CF6)]; // 紫色（普通赞助用户）
   }
 
   @override
@@ -1092,8 +1113,8 @@ class _UserCardState extends State<UserCard> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                                    gradient: LinearGradient(
+                                      colors: _getSponsorBadgeColors(),
                                     ),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -1107,7 +1128,7 @@ class _UserCardState extends State<UserCard> {
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        '金牌赞助',
+                                        _getSponsorBadgeText(),
                                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
@@ -1645,8 +1666,8 @@ class _UserCardState extends State<UserCard> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                                gradient: LinearGradient(
+                                  colors: _getSponsorBadgeColors(),
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -1660,7 +1681,7 @@ class _UserCardState extends State<UserCard> {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '金牌赞助',
+                                    _getSponsorBadgeText(),
                                     style: fluent_ui.FluentTheme.of(context).typography.caption?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,

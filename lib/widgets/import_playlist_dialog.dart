@@ -249,12 +249,8 @@ class ImportPlaylistDialog {
     String neteaseImportMode = 'account';
     Map<String, dynamic>? result;
     
-    // Cupertino 风格
-    if (ThemeManager().isCupertinoFramework) {
-      result = await _showCupertinoImportDialogImpl(context, controller, selectedPlatform, neteaseImportMode);
-    }
-    // Fluent 风格
-    else if (ThemeManager().isFluentFramework) {
+    // Fluent 风格 (Windows 桌面优先检查)
+    if (ThemeManager().isFluentFramework) {
       String? errorText;
       result = await fluent.showDialog<Map<String, dynamic>>(
         context: context,
@@ -408,7 +404,13 @@ class ImportPlaylistDialog {
           ),
         ),
       );
-    } else {
+    }
+    // Cupertino 风格 (iOS/Android 移动端)
+    else if (ThemeManager().isCupertinoFramework) {
+      result = await _showCupertinoImportDialogImpl(context, controller, selectedPlatform, neteaseImportMode);
+    }
+    // Material 风格 (默认)
+    else {
       result = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (context) => StatefulBuilder(

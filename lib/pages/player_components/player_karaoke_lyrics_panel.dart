@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import '../../services/player_service.dart';
+import '../../services/lyric_font_service.dart';
 import '../../models/lyric_line.dart';
 
 /// 桌面端卡拉OK样式歌词面板
@@ -34,13 +35,23 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
   void initState() {
     super.initState();
     _initializeAnimations();
+    // 监听字体变化，实时刷新
+    LyricFontService().addListener(_onFontChanged);
   }
 
   @override
   void dispose() {
+    LyricFontService().removeListener(_onFontChanged);
     _autoResetTimer?.cancel();
     _timeCapsuleAnimationController?.dispose();
     super.dispose();
+  }
+  
+  /// 字体变化回调
+  void _onFontChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   /// 初始化动画
@@ -317,7 +328,7 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
                     style: TextStyle(
                       color: _getAdaptiveLyricColor(themeColor, false).withOpacity(0.75),
                       fontSize: 13,
-                      fontFamily: 'Microsoft YaHei',
+                      fontFamily: LyricFontService().currentFontFamily,
                     ),
                   ),
                 ),
@@ -344,7 +355,7 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
         fontSize: 15,
         fontWeight: FontWeight.normal,
         height: 1.4,
-        fontFamily: 'Microsoft YaHei',
+        fontFamily: LyricFontService().currentFontFamily,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -371,7 +382,7 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
                   style: TextStyle(
                     color: translationColor,
                     fontSize: 12,
-                    fontFamily: 'Microsoft YaHei',
+                    fontFamily: LyricFontService().currentFontFamily,
                   ),
                 ),
               ),
@@ -401,7 +412,7 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
             color: baseColor,
             fontSize: fontSize,
             fontWeight: FontWeight.bold,
-            fontFamily: 'Microsoft YaHei',
+            fontFamily: LyricFontService().currentFontFamily,
             height: 1.4,
           ),
           textAlign: TextAlign.center,
@@ -418,7 +429,7 @@ class _PlayerKaraokeLyricsPanelState extends State<PlayerKaraokeLyricsPanel> wit
               color: isSelected ? Colors.orange : highlightColor,
               fontSize: fontSize,
               fontWeight: FontWeight.bold,
-              fontFamily: 'Microsoft YaHei',
+              fontFamily: LyricFontService().currentFontFamily,
               height: 1.4,
               // 添加发光效果
               shadows: [

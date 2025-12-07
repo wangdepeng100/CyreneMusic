@@ -69,7 +69,7 @@ class DesktopLyricWindow {
   // Update window display
   void UpdateWindow();
   
-  // Draw lyric to memory DC
+  // Draw lyric to memory DC (handles both horizontal and vertical modes)
   void DrawLyric(HDC hdc, int width, int height);
   
   HWND hwnd_;
@@ -142,6 +142,19 @@ class DesktopLyricWindow {
   
   // Set lyric duration (for calculating scroll speed)
   void SetLyricDuration(DWORD duration_ms);
+  
+  // Set vertical layout mode
+  void SetVertical(bool vertical);
+  
+  // Get vertical layout mode
+  bool GetVertical() const { return is_vertical_; }
+
+ private:
+  // Vertical layout mode
+  bool is_vertical_;
+  
+  // Vertical mode button rect
+  RECT vertical_toggle_rect_;
 };
 
 #endif  // RUNNER_DESKTOP_LYRIC_WINDOW_H_

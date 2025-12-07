@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import '../../services/player_service.dart';
 import '../../services/lyric_font_service.dart';
 import '../../models/lyric_line.dart';
@@ -51,15 +51,25 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     super.initState();
     _initAnimations();
     _previousIndex = widget.currentLyricIndex;
+    // 监听字体变化，实时刷新
+    LyricFontService().addListener(_onFontChanged);
   }
 
   @override
   void dispose() {
+    LyricFontService().removeListener(_onFontChanged);
     _scrollResetTimer?.cancel();
     _timeCapsuleController.dispose();
     _spacingController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+  
+  /// 字体变化回调
+  void _onFontChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _initAnimations() {
@@ -352,8 +362,9 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 400),
                   opacity: opacity,
-                  child: ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                  // 性能优化：仅在需要模糊时应用 ImageFiltered
+                  child: _OptionalBlur(
+                    blur: blur,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,12 +381,6 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
                             fontFamily: LyricFontService().currentFontFamily ?? 'Microsoft YaHei',
                             height: 1.25,
                             letterSpacing: -0.5,
-                            shadows: isActive ? [
-                              Shadow(
-                                color: Colors.white.withOpacity(0.3),
-                                blurRadius: 20,
-                              ),
-                            ] : null,
                           ),
                           child: Builder(
                             builder: (context) {
@@ -524,9 +529,31 @@ class _ElasticOutCurve extends Curve {
   }
 }
 
+/// 性能优化：条件应用模糊滤镜
+/// blur=0 时直接返回子组件，避免不必要的滤镜开销
+class _OptionalBlur extends StatelessWidget {
+  final double blur;
+  final Widget child;
+
+  const _OptionalBlur({
+    required this.blur,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 当 blur 接近 0 时，跳过滤镜操作
+    if (blur < 0.1) return child;
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+      child: child,
+    );
+  }
+}
+
 /// 卡拉OK文本组件 - 实现逐行填充效果
-/// 对于多行文本：先从左到右填充第一行，再从左到右填充第二行
-class _KaraokeText extends StatelessWidget {
+/// 性能优化：使用 Ticker 驱动动画，避免监听整个 PlayerService
+class _KaraokeText extends StatefulWidget {
   final String text;
   final LyricLine lyric;
   final List<LyricLine> lyrics;
@@ -540,41 +567,73 @@ class _KaraokeText extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: PlayerService(),
-      builder: (context, child) {
-        final player = PlayerService();
-        final currentPos = player.position;
-        
-        // 计算持续时间
-        Duration duration;
-        if (index < lyrics.length - 1) {
-          duration = lyrics[index + 1].startTime - lyric.startTime;
-        } else {
-          duration = const Duration(seconds: 5);
-        }
-        
-        if (duration.inMilliseconds == 0) duration = const Duration(seconds: 3);
-        
-        final elapsed = currentPos - lyric.startTime;
-        final progress = (elapsed.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
-        
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            return _buildKaraokeEffect(context, constraints, progress);
-          },
-        );
-      },
-    );
+  State<_KaraokeText> createState() => _KaraokeTextState();
+}
+
+class _KaraokeTextState extends State<_KaraokeText> with SingleTickerProviderStateMixin {
+  late Ticker _ticker;
+  double _progress = 0.0;
+  
+  // 布局测量缓存
+  double _cachedMaxWidth = 0.0;
+  TextStyle? _cachedStyle;
+  List<LineMetrics>? _cachedLineMetrics;
+  int _cachedLineCount = 1;
+  double _line1Width = 0.0;
+  double _line2Width = 0.0;
+  double _line1Height = 0.0;
+  double _line2Height = 0.0;
+  double _line1Ratio = 0.5;
+  
+  // 计算歌词持续时间（缓存）
+  late Duration _duration;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateDuration();
+    _ticker = createTicker(_onTick);
+    _ticker.start();
   }
 
-  Widget _buildKaraokeEffect(BuildContext context, BoxConstraints constraints, double progress) {
-    // 获取当前文本样式
-    final style = DefaultTextStyle.of(context).style;
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+  
+  void _calculateDuration() {
+    if (widget.index < widget.lyrics.length - 1) {
+      _duration = widget.lyrics[widget.index + 1].startTime - widget.lyric.startTime;
+    } else {
+      _duration = const Duration(seconds: 5);
+    }
+    if (_duration.inMilliseconds == 0) _duration = const Duration(seconds: 3);
+  }
+
+  void _onTick(Duration elapsed) {
+    final currentPos = PlayerService().position;
+    final elapsedFromStart = currentPos - widget.lyric.startTime;
+    final newProgress = (elapsedFromStart.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
     
-    // 创建 TextPainter 来测量文本
-    final textSpan = TextSpan(text: text, style: style);
+    // 仅在进度有显著变化时更新（减少不必要的重建）
+    if ((newProgress - _progress).abs() > 0.005) {
+      setState(() {
+        _progress = newProgress;
+      });
+    }
+  }
+  
+  /// 更新布局测量缓存
+  void _updateLayoutCache(BoxConstraints constraints, TextStyle style) {
+    if (_cachedMaxWidth == constraints.maxWidth && _cachedStyle == style) {
+      return; // 缓存有效，无需重新测量
+    }
+    
+    _cachedMaxWidth = constraints.maxWidth;
+    _cachedStyle = style;
+    
+    final textSpan = TextSpan(text: widget.text, style: style);
     final textPainter = TextPainter(
       text: textSpan,
       maxLines: 2,
@@ -582,100 +641,106 @@ class _KaraokeText extends StatelessWidget {
     );
     textPainter.layout(maxWidth: constraints.maxWidth);
     
-    // 获取每行的信息
-    final lineMetrics = textPainter.computeLineMetrics();
-    final lineCount = lineMetrics.length.clamp(1, 2);
+    _cachedLineMetrics = textPainter.computeLineMetrics();
+    _cachedLineCount = _cachedLineMetrics!.length.clamp(1, 2);
     
-    if (lineCount == 1) {
-      // 单行：简单的水平渐变
-      return ShaderMask(
-        shaderCallback: (bounds) {
-          return LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              Colors.white,
-              Colors.white.withOpacity(0.45),
-            ],
-            stops: [progress, progress],
-            tileMode: TileMode.clamp,
-          ).createShader(bounds);
-        },
-        blendMode: BlendMode.srcIn,
-        child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
+    _line1Width = _cachedLineMetrics![0].width;
+    _line2Width = _cachedLineMetrics!.length > 1 ? _cachedLineMetrics![1].width : 0.0;
+    _line1Height = _cachedLineMetrics![0].height;
+    _line2Height = _cachedLineMetrics!.length > 1 ? _cachedLineMetrics![1].height : 0.0;
+    
+    final totalWidth = _line1Width + _line2Width;
+    _line1Ratio = totalWidth > 0 ? _line1Width / totalWidth : 0.5;
+    
+    textPainter.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final style = DefaultTextStyle.of(context).style;
+        _updateLayoutCache(constraints, style);
+        return _buildKaraokeEffect(style);
+      },
+    );
+  }
+
+  Widget _buildKaraokeEffect(TextStyle style) {
+    if (_cachedLineCount == 1) {
+      // 单行：使用 ShaderMask 实现高性能渐变
+      return RepaintBoundary(
+        child: ShaderMask(
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: const [
+                Colors.white,
+                Color(0x73FFFFFF), // Colors.white.withOpacity(0.45)
+              ],
+              stops: [_progress, _progress],
+              tileMode: TileMode.clamp,
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.srcIn,
+          child: Text(widget.text, maxLines: 2, overflow: TextOverflow.ellipsis),
+        ),
       );
     }
     
-    // 多行：使用 Stack 叠加实现逐行填充
-    // 计算每行的宽度占比，用于分配进度
-    final line1Width = lineMetrics[0].width;
-    final line2Width = lineMetrics.length > 1 ? lineMetrics[1].width : 0.0;
-    final totalWidth = line1Width + line2Width;
-    
-    // 第一行占总进度的比例
-    final line1Ratio = totalWidth > 0 ? line1Width / totalWidth : 0.5;
-    
-    // 计算每行的进度
+    // 多行：计算每行进度
     double line1Progress, line2Progress;
-    if (progress <= line1Ratio) {
-      // 还在填充第一行
-      line1Progress = progress / line1Ratio;
+    if (_progress <= _line1Ratio) {
+      line1Progress = _progress / _line1Ratio;
       line2Progress = 0.0;
     } else {
-      // 第一行已填满，开始填充第二行
       line1Progress = 1.0;
-      line2Progress = (progress - line1Ratio) / (1.0 - line1Ratio);
+      line2Progress = (_progress - _line1Ratio) / (1.0 - _line1Ratio);
     }
     
-    final line1Height = lineMetrics[0].height;
-    // 第二行高度：使用实际的行高，并增加一些余量确保完整显示
-    final line2Height = lineMetrics.length > 1 ? lineMetrics[1].height : 0.0;
-    
-    // 底层：暗色文本
+    // 底层暗色文本 (使用 const 颜色)
     final dimText = Text(
-      text,
+      widget.text,
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
-      style: style.copyWith(color: Colors.white.withOpacity(0.45)),
+      style: style.copyWith(color: const Color(0x73FFFFFF)),
     );
     
-    // 上层：亮色文本，通过裁剪显示进度
+    // 上层亮色文本
     final brightText = Text(
-      text,
+      widget.text,
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: style.copyWith(color: Colors.white),
     );
     
-    return Stack(
-      children: [
-        // 底层暗色文本
-        dimText,
-        
-        // 第一行亮色部分
-        ClipRect(
-          clipper: _LineClipper(
-            lineIndex: 0,
-            progress: line1Progress,
-            lineHeight: line1Height,
-            lineWidth: line1Width,
-          ),
-          child: brightText,
-        ),
-        
-        // 第二行亮色部分
-        if (lineCount > 1)
+    return RepaintBoundary(
+      child: Stack(
+        children: [
+          dimText,
           ClipRect(
             clipper: _LineClipper(
-              lineIndex: 1,
-              progress: line2Progress,
-              lineHeight: line2Height + 10, // 增加余量确保完整显示
-              lineWidth: line2Width,
-              yOffset: line1Height, // 第二行起始位置
+              lineIndex: 0,
+              progress: line1Progress,
+              lineHeight: _line1Height,
+              lineWidth: _line1Width,
             ),
             child: brightText,
           ),
-      ],
+          if (_cachedLineCount > 1)
+            ClipRect(
+              clipper: _LineClipper(
+                lineIndex: 1,
+                progress: line2Progress,
+                lineHeight: _line2Height + 10,
+                lineWidth: _line2Width,
+                yOffset: _line1Height,
+              ),
+              child: brightText,
+            ),
+        ],
+      ),
     );
   }
 }

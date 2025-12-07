@@ -355,7 +355,7 @@ Future<_DonateFormResult?> _showDonateDialog(BuildContext context) async {
                   onPressed: () {
                     final a = _resolveAmount(amount, customCtrl.text);
                     if (a == null) {
-                      setState(() => errorText = '请输入有效金额，最多两位小数');
+                      setState(() => errorText = '请输入有效金额，最小1元，最多两位小数');
                       return;
                     }
                     Navigator.pop(context, _DonateFormResult(method, a));
@@ -542,7 +542,7 @@ Future<_DonateFormResult?> _showDonateDialog(BuildContext context) async {
                 onPressed: () {
                   final a = _resolveAmount(amount, customCtrl.text);
                   if (a == null) {
-                    setState(() => errorText = '请输入有效金额，最多两位小数');
+                    setState(() => errorText = '请输入有效金额，最小1元，最多两位小数');
                     return;
                   }
                   Navigator.pop(context, _DonateFormResult(method, a));
@@ -557,12 +557,14 @@ Future<_DonateFormResult?> _showDonateDialog(BuildContext context) async {
   );
 }
 
-// Parse custom input if any; validate 2 decimals
+// Parse custom input if any; validate 2 decimals, min 1 yuan
 double? _tryParseMoney(String s) {
   if (s.trim().isEmpty) return null;
   final reg = RegExp(r'^\d{1,6}(?:\.\d{1,2})?$');
   if (!reg.hasMatch(s.trim())) return null;
-  return double.tryParse(s.trim());
+  final amount = double.tryParse(s.trim());
+  if (amount == null || amount < 1.0) return null; // 最小1元
+  return amount;
 }
 
 double? _resolveAmount(double preset, String custom) {

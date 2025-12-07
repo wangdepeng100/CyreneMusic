@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:window_manager/window_manager.dart';
 import '../../services/sleep_timer_service.dart';
@@ -8,7 +10,9 @@ import '../../services/playback_mode_service.dart';
 import '../../services/download_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/lyric_style_service.dart';
+import '../../services/lyric_font_service.dart';
 import '../../services/player_background_service.dart';
+import '../../utils/theme_manager.dart';
 import '../../models/track.dart';
 import '../../models/song_detail.dart';
 import '../settings_page/player_background_dialog.dart';
@@ -250,11 +254,12 @@ class _MoreMenuButtonState extends State<_MoreMenuButton> {
 
   Widget _buildMenuContent() {
     return AnimatedBuilder(
-      animation: Listenable.merge([SleepTimerService(), PlaybackModeService(), LyricStyleService()]),
+      animation: Listenable.merge([SleepTimerService(), PlaybackModeService(), LyricStyleService(), LyricFontService()]),
       builder: (context, _) {
         final sleepTimer = SleepTimerService();
         final playbackMode = PlaybackModeService();
         final lyricStyle = LyricStyleService();
+        final lyricFont = LyricFontService();
         
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -310,6 +315,21 @@ class _MoreMenuButtonState extends State<_MoreMenuButton> {
               },
             ),
             
+            // 歌词字体
+            _buildMenuItem(
+              icon: Icons.font_download_rounded,
+              label: '歌词字体: ${lyricFont.currentFontName}',
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: Colors.white54,
+                size: 18,
+              ),
+              onTap: () {
+                _hideMenu();
+                _showFontPicker(context);
+              },
+            ),
+            
             // 分隔线
             Divider(
               height: 1,
@@ -360,6 +380,13 @@ class _MoreMenuButtonState extends State<_MoreMenuButton> {
           // 背景设置变化后刷新
         },
       ),
+    );
+  }
+  
+  void _showFontPicker(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _LyricFontPickerDialog(),
     );
   }
 
@@ -585,5 +612,278 @@ class _DownloadButton extends StatelessWidget {
         body: '${track.name}: $e',
       );
     }
+  }
+}
+
+/// 歌词字体选择对话框（自适应主题）
+class _LyricFontPickerDialog extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final themeManager = ThemeManager();
+    
+    // 根据主题选择不同的对话框样式
+    if (themeManager.isFluentFramework) {
+      return _buildFluentDialog(context);
+    } else if (themeManager.isCupertinoFramework) {
+      return _buildCupertinoDialog(context);
+    }
+    return _buildMaterialDialog(context);
+  }
+  
+  // ========== Fluent UI 对话框 ==========
+  Widget _buildFluentDialog(BuildContext context) {
+    final fluentTheme = fluent.FluentTheme.of(context);
+    
+    return fluent.ContentDialog(
+      title: const Row(
+        children: [
+          Icon(fluent.FluentIcons.font, size: 20),
+          SizedBox(width: 8),
+          Text('选择歌词字体'),
+        ],
+      ),
+      constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+      content: AnimatedBuilder(
+        animation: LyricFontService(),
+        builder: (context, _) {
+          final fontService = LyricFontService();
+          return ListView.builder(
+            shrinkWrap: true,
+            itemCount: LyricFontService.presetFonts.length,
+            itemBuilder: (context, index) {
+              final font = LyricFontService.presetFonts[index];
+              final isSelected = fontService.fontType == 'preset' && 
+                  fontService.presetFontId == font.id;
+              
+              return fluent.ListTile.selectable(
+                selected: isSelected,
+                onPressed: () async {
+                  await fontService.setPresetFont(font.id);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                leading: Text(
+                  '字',
+                  style: TextStyle(
+                    fontFamily: font.fontFamily,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: fluentTheme.accentColor,
+                  ),
+                ),
+                title: Text(
+                  font.name,
+                  style: TextStyle(fontFamily: font.fontFamily),
+                ),
+                subtitle: Text(font.description),
+                trailing: isSelected 
+                    ? Icon(fluent.FluentIcons.check_mark, 
+                        color: fluentTheme.accentColor, size: 16)
+                    : null,
+              );
+            },
+          );
+        },
+      ),
+      actions: [
+        fluent.Button(
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(fluent.FluentIcons.fabric_folder, size: 16),
+              SizedBox(width: 8),
+              Text('自定义字体...'),
+            ],
+          ),
+          onPressed: () async {
+            final success = await LyricFontService().pickAndLoadCustomFont();
+            if (success && context.mounted) Navigator.pop(context);
+          },
+        ),
+        fluent.FilledButton(
+          child: const Text('关闭'),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
+    );
+  }
+  
+  // ========== Cupertino 对话框 ==========
+  Widget _buildCupertinoDialog(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: CupertinoActionSheet(
+        title: const Text('选择歌词字体'),
+        message: const Text('选择一个字体来显示歌词'),
+        actions: [
+          ...LyricFontService.presetFonts.map((font) {
+            final fontService = LyricFontService();
+            final isSelected = fontService.fontType == 'preset' && 
+                fontService.presetFontId == font.id;
+            
+            return CupertinoActionSheetAction(
+              onPressed: () async {
+                await fontService.setPresetFont(font.id);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (isSelected)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Icon(CupertinoIcons.checkmark_alt, 
+                          color: CupertinoColors.activeBlue, size: 18),
+                    ),
+                  Text(
+                    font.name,
+                    style: TextStyle(
+                      fontFamily: font.fontFamily,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isSelected ? CupertinoColors.activeBlue : null,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          CupertinoActionSheetAction(
+            onPressed: () async {
+              final success = await LyricFontService().pickAndLoadCustomFont();
+              if (success && context.mounted) Navigator.pop(context);
+            },
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(CupertinoIcons.folder, size: 18),
+                SizedBox(width: 8),
+                Text('选择自定义字体...'),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+  }
+  
+  // ========== Material 对话框 ==========
+  Widget _buildMaterialDialog(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: Container(
+        width: 340,
+        constraints: const BoxConstraints(maxHeight: 500),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标题栏
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Row(
+                children: [
+                  Icon(Icons.font_download_rounded, 
+                      color: colorScheme.primary, size: 24),
+                  const SizedBox(width: 12),
+                  Text(
+                    '选择歌词字体',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            const Divider(height: 1),
+            
+            // 字体列表
+            Flexible(
+              child: AnimatedBuilder(
+                animation: LyricFontService(),
+                builder: (context, _) {
+                  final fontService = LyricFontService();
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: LyricFontService.presetFonts.length,
+                    itemBuilder: (context, index) {
+                      final font = LyricFontService.presetFonts[index];
+                      final isSelected = fontService.fontType == 'preset' && 
+                          fontService.presetFontId == font.id;
+                      
+                      return ListTile(
+                        selected: isSelected,
+                        selectedTileColor: colorScheme.primaryContainer.withOpacity(0.3),
+                        leading: CircleAvatar(
+                          backgroundColor: isSelected 
+                              ? colorScheme.primary 
+                              : colorScheme.surfaceContainerHighest,
+                          child: Text(
+                            '字',
+                            style: TextStyle(
+                              fontFamily: font.fontFamily,
+                              color: isSelected 
+                                  ? colorScheme.onPrimary 
+                                  : colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          font.name,
+                          style: TextStyle(
+                            fontFamily: font.fontFamily,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(font.description),
+                        trailing: isSelected 
+                            ? Icon(Icons.check_circle, color: colorScheme.primary)
+                            : null,
+                        onTap: () async {
+                          await fontService.setPresetFont(font.id);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            
+            const Divider(height: 1),
+            
+            // 底部按钮
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () async {
+                      final success = await LyricFontService().pickAndLoadCustomFont();
+                      if (success && context.mounted) Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.folder_open_rounded, size: 18),
+                    label: const Text('自定义字体'),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('关闭'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
