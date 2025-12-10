@@ -144,8 +144,8 @@ class UrlService extends ChangeNotifier {
 
   // Accounts API
   String get accountsBindingsUrl => '$baseUrl/accounts/bindings';
-  String get accountsUnbindNeteaseUrl => '$baseUrl/accounts/netease';
-  String get accountsUnbindKugouUrl => '$baseUrl/accounts/kugou';
+  String get accountsUnbindNeteaseUrl => '$baseUrl/accounts/netease/unbind';
+  String get accountsUnbindKugouUrl => '$baseUrl/accounts/kugou/unbind';
 
   // Netease Recommend API (require user-bound cookie)
   String get neteaseRecommendSongsUrl => '$baseUrl/recommend/songs';

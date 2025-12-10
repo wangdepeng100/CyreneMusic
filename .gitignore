@@ -48,6 +48,6 @@ app.*.map.json
 /musicapi/
 /background_dev/
 /api-enhanced/
-/backend/
 /installer/
 /website/
+backend/

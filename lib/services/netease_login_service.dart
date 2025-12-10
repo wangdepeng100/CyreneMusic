@@ -93,9 +93,14 @@ class NeteaseLoginService extends ChangeNotifier {
 
   Future<bool> unbindNetease() async {
     final token = AuthService().token;
-    final r = await http.delete(
+    final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000; // 秒级时间戳
+    final r = await http.post(
       Uri.parse(UrlService().accountsUnbindNeteaseUrl),
-      headers: token != null ? { 'Authorization': 'Bearer $token' } : {},
+      headers: {
+        if (token != null) 'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({'timestamp': timestamp}),
     ).timeout(const Duration(seconds: 10));
     return r.statusCode == 200;
   }
