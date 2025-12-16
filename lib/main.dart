@@ -25,10 +25,11 @@ import 'package:cyrene_music/services/system_media_service.dart';
 import 'package:cyrene_music/services/tray_service.dart';
 import 'package:cyrene_music/services/url_service.dart';
 import 'package:cyrene_music/services/version_service.dart';
+import 'package:cyrene_music/services/mini_player_window_service.dart';
+import 'package:cyrene_music/pages/mini_player_window_page.dart';
 import 'package:cyrene_music/utils/theme_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:media_kit/media_kit.dart';
-
 
 // 条件导入 flutter_displaymode（仅 Android）
 import 'package:flutter_displaymode/flutter_displaymode.dart' if (dart.library.html) '';
@@ -74,15 +75,17 @@ void main() async {
         await Window.initialize();
       } catch (_) {}
     }
-    
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(1320, 880),
-      minimumSize: Size(360, 640),
+
+    final WindowOptions windowOptions = WindowOptions(
+      size: const Size(1320, 880),
+      minimumSize: const Size(320, 120),
       center: true,
-      backgroundColor: Colors.transparent,
+      // 透明背景 + 自绘标题栏仅适用于 Windows
+      backgroundColor: Platform.isWindows ? Colors.transparent : Colors.white,
       skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // 隐藏系统标题栏，使用自定义标题栏
-      windowButtonVisibility: false,
+      titleBarStyle:
+          Platform.isWindows ? TitleBarStyle.hidden : TitleBarStyle.normal,
+      windowButtonVisibility: !Platform.isWindows,
     );
     
     windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -215,7 +218,7 @@ void main() async {
   if (Platform.isWindows) {
     doWhenWindowReady(() {
       const initialSize = Size(1320, 880);
-      const minSize = Size(360, 640);
+      const minSize = Size(160, 60);
       
       appWindow.minSize = minSize;
       appWindow.size = initialSize;
@@ -244,14 +247,20 @@ class MyApp extends StatelessWidget {
         final useCupertinoLayout = (Platform.isIOS || Platform.isAndroid) && themeManager.isCupertinoFramework;
 
         if (useFluentLayout) {
-          return fluent.FluentApp(
-            title: 'Cyrene Music',
-            debugShowCheckedModeBanner: false,
-            theme: themeManager.buildFluentThemeData(Brightness.light),
-            darkTheme: themeManager.buildFluentThemeData(Brightness.dark),
-            themeMode: _mapMaterialThemeMode(themeManager.themeMode),
-            scrollBehavior: const _FluentScrollBehavior(),
-            home: const FluentMainLayout(),
+          return AnimatedBuilder(
+            animation: MiniPlayerWindowService(),
+            builder: (context, _) {
+              final isMiniMode = MiniPlayerWindowService().isMiniMode;
+              return fluent.FluentApp(
+                title: 'Cyrene Music',
+                debugShowCheckedModeBanner: false,
+                theme: themeManager.buildFluentThemeData(Brightness.light),
+                darkTheme: themeManager.buildFluentThemeData(Brightness.dark),
+                themeMode: _mapMaterialThemeMode(themeManager.themeMode),
+                scrollBehavior: const _FluentScrollBehavior(),
+                home: isMiniMode ? const MiniPlayerWindowPage() : const FluentMainLayout(),
+              );
+            },
           );
         }
 
@@ -292,9 +301,9 @@ class MyApp extends StatelessWidget {
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode: themeManager.themeMode,
-      home: Platform.isWindows
-          ? _WindowsRoundedContainer(child: const MainLayout())
-          : const MainLayout(),
+          home: Platform.isWindows
+            ? _WindowsRoundedContainer(child: const MainLayout())
+            : const MainLayout(),
         );
       },
     );

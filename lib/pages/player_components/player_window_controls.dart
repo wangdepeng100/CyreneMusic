@@ -12,6 +12,7 @@ import '../../services/notification_service.dart';
 import '../../services/lyric_style_service.dart';
 import '../../services/lyric_font_service.dart';
 import '../../services/player_background_service.dart';
+import '../../services/mini_player_window_service.dart';
 import '../../utils/theme_manager.dart';
 import '../../models/track.dart';
 import '../../models/song_detail.dart';
@@ -97,6 +98,8 @@ class PlayerWindowControls extends StatelessWidget {
                       track: currentTrack!,
                       song: currentSong!,
                     ),
+                  // 迷你播放器按钮
+                  _MiniPlayerButton(),
                 ],
               ),
             ),
@@ -883,6 +886,25 @@ class _LyricFontPickerDialog extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 迷你播放器按钮
+class _MiniPlayerButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '迷你播放器',
+      child: IconButton(
+        icon: const Icon(Icons.picture_in_picture_alt_rounded, size: 20),
+        color: Colors.white.withOpacity(0.9),
+        onPressed: () {
+          // 先关闭全屏播放器页面，然后切换到迷你模式
+          Navigator.of(context).pop();
+          MiniPlayerWindowService().enterMiniMode();
+        },
       ),
     );
   }

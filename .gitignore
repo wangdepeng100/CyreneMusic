@@ -50,6 +50,6 @@ app.*.map.json
 /api-enhanced/
 /installer/
 /website/
-backend/
 /gamdl/
 /AppleMusicDecrypt/
+/backend/
