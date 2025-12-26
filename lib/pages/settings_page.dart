@@ -157,17 +157,84 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 打开子页面
   void openSubPage(SettingsSubPage subPage) {
-    setState(() {
-      _currentSubPage = subPage;
-    });
-    // 注册返回处理器
-    GlobalBackHandlerService().register('settings_sub_page', () {
-      if (_currentSubPage != SettingsSubPage.none) {
-        closeSubPage();
-        return true;
-      }
-      return false;
-    });
+    final isCupertinoUI = (Platform.isIOS || Platform.isAndroid) && ThemeManager().isCupertinoFramework;
+    
+    if (isCupertinoUI) {
+      // iOS 使用原生 Navigator 动画
+      _openCupertinoSubPage(context, subPage);
+    } else {
+      // 其他平台使用内嵌动画
+      setState(() {
+        _currentSubPage = subPage;
+      });
+      // 注册返回处理器
+      GlobalBackHandlerService().register('settings_sub_page', () {
+        if (_currentSubPage != SettingsSubPage.none) {
+          closeSubPage();
+          return true;
+        }
+        return false;
+      });
+    }
+  }
+
+  /// 使用原生 iOS 导航打开子页面
+  void _openCupertinoSubPage(BuildContext context, SettingsSubPage subPage) {
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (context) => _buildCupertinoSubPageWidget(subPage),
+      ),
+    );
+  }
+
+  /// 构建 Cupertino 子页面 Widget（带完整导航栏）
+  Widget _buildCupertinoSubPageWidget(SettingsSubPage subPage) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? CupertinoColors.black : CupertinoColors.systemGroupedBackground;
+    
+    Widget content;
+    String title;
+    
+    switch (subPage) {
+      case SettingsSubPage.appearance:
+        content = AppearanceSettingsContent(onBack: () => Navigator.pop(context), embed: true);
+        title = '外观';
+      case SettingsSubPage.thirdPartyAccounts:
+        content = ThirdPartyAccountsContent(onBack: () => Navigator.pop(context), embed: true);
+        title = '第三方账号';
+      case SettingsSubPage.lyric:
+        content = LyricSettingsContent(onBack: () => Navigator.pop(context), embed: true);
+        title = '歌词';
+      case SettingsSubPage.audioSource:
+        content = AudioSourceSettingsContent(onBack: () => Navigator.pop(context), embed: true);
+        title = '音源设置';
+      case SettingsSubPage.none:
+        return const SizedBox.shrink();
+    }
+    
+    return CupertinoPageScaffold(
+      backgroundColor: backgroundColor,
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(title),
+        backgroundColor: backgroundColor,
+        border: null,
+      ),
+      child: SafeArea(
+        // 使用 Material 包裹以提供正确的 DefaultTextStyle，修复黄色下划线问题
+        child: Material(
+          type: MaterialType.transparency,
+          child: DefaultTextStyle(
+            style: TextStyle(
+              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+              fontSize: 17,
+              decoration: TextDecoration.none,
+              fontFamily: '.SF Pro Text',
+            ),
+            child: content,
+          ),
+        ),
+      ),
+    );
   }
   
   /// 关闭子页面，返回主设置页面
@@ -320,172 +387,145 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 构建 Cupertino UI 版本（iOS 26 风格）
+  /// 注意：子页面现在通过 Navigator.push + CupertinoPageRoute 实现原生动画
   Widget _buildCupertinoUI(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isDark ? CupertinoColors.black : CupertinoColors.systemGroupedBackground;
     
-    // 子页面使用标准导航栏
-    if (_currentSubPage != SettingsSubPage.none) {
-      return CupertinoPageScaffold(
-        backgroundColor: backgroundColor,
-        navigationBar: CupertinoNavigationBar(
-          backgroundColor: backgroundColor.withOpacity(0.8),
-          border: null,
-          leading: CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: closeSubPage,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(CupertinoIcons.back, size: 20),
-                const SizedBox(width: 4),
-                Text(
-                  '设置',
-                  style: TextStyle(
-                    color: CupertinoTheme.of(context).primaryColor,
-                    fontSize: 17,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          middle: Text(_getPageTitle()),
-        ),
-        child: SafeArea(
-          child: _buildCupertinoSubPage(context),
-        ),
-      );
-    }
-    
     // 主设置页面使用大标题导航栏 (iOS 26 风格)
     return CupertinoPageScaffold(
       backgroundColor: backgroundColor,
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          // iOS 26 大标题导航栏
-          CupertinoSliverNavigationBar(
-            largeTitle: const Text('设置'),
-            backgroundColor: backgroundColor,
-            border: null,
-            stretch: false,
-          ),
-          
-          // 主内容
-          SliverToBoxAdapter(
-            child: SafeArea(
-              top: false,
-              child: Column(
+      child: _buildCupertinoMainContent(context, isDark, backgroundColor),
+    );
+  }
+
+  /// 构建 Cupertino 主设置页面内容
+  Widget _buildCupertinoMainContent(BuildContext context, bool isDark, Color backgroundColor) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        // iOS 26 大标题导航栏
+        CupertinoSliverNavigationBar(
+          largeTitle: const Text('设置'),
+          backgroundColor: backgroundColor,
+          border: null,
+          stretch: false,
+        ),
+        
+        // 主内容
+        SliverToBoxAdapter(
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+              const SizedBox(height: 8),
+              
+              // 用户卡片 - iOS 26 风格
+              _buildCupertinoUserSection(context, isDark),
+              
+              const SizedBox(height: 24),
+              
+              // 账号设置分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '账号',
                 children: [
-                const SizedBox(height: 8),
-                
-                // 用户卡片 - iOS 26 风格
-                _buildCupertinoUserSection(context, isDark),
-                
-                const SizedBox(height: 24),
-                
-                // 账号设置分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '账号',
-                  children: [
-                    _buildCupertinoSettingsItem(
-                      context,
-                      isDark: isDark,
-                      icon: CupertinoIcons.link,
-                      iconColor: const Color(0xFF5856D6),
-                      title: '第三方账号',
-                      subtitle: '网易云音乐等',
-                      onTap: () => openSubPage(SettingsSubPage.thirdPartyAccounts),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // 外观与显示分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '外观与显示',
-                  children: [
-                    _buildCupertinoSettingsItem(
-                      context,
-                      isDark: isDark,
-                      icon: CupertinoIcons.paintbrush,
-                      iconColor: const Color(0xFFFF9500),
-                      title: '外观',
-                      subtitle: '主题、颜色、界面',
-                      onTap: () => openSubPage(SettingsSubPage.appearance),
-                    ),
-                    _buildCupertinoSettingsItem(
-                      context,
-                      isDark: isDark,
-                      icon: CupertinoIcons.text_quote,
-                      iconColor: const Color(0xFF34C759),
-                      title: '歌词',
-                      subtitle: '歌词显示设置',
-                      onTap: () => openSubPage(SettingsSubPage.lyric),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // 播放设置分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '播放',
-                  children: const [
-                    PlaybackSettings(),
-                  ],
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // 网络设置分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '网络',
-                  children: [
-                    NetworkSettings(onAudioSourceTap: () => openSubPage(SettingsSubPage.audioSource)),
-                  ],
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // 存储设置分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '存储',
-                  children: const [
-                    StorageSettings(),
-                  ],
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // 关于分组
-                _buildCupertinoSettingsGroup(
-                  context,
-                  isDark: isDark,
-                  header: '关于',
-                  children: const [
-                    AboutSettings(),
-                  ],
-                ),
-                
-                const SizedBox(height: 100), // 底部留白
+                  _buildCupertinoSettingsItem(
+                    context,
+                    isDark: isDark,
+                    icon: CupertinoIcons.link,
+                    iconColor: const Color(0xFF5856D6),
+                    title: '第三方账号',
+                    subtitle: '网易云音乐等',
+                    onTap: () => openSubPage(SettingsSubPage.thirdPartyAccounts),
+                  ),
                 ],
               ),
+              
+              const SizedBox(height: 24),
+              
+              // 外观与显示分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '外观与显示',
+                children: [
+                  _buildCupertinoSettingsItem(
+                    context,
+                    isDark: isDark,
+                    icon: CupertinoIcons.paintbrush,
+                    iconColor: const Color(0xFFFF9500),
+                    title: '外观',
+                    subtitle: '主题、颜色、界面',
+                    onTap: () => openSubPage(SettingsSubPage.appearance),
+                  ),
+                  _buildCupertinoSettingsItem(
+                    context,
+                    isDark: isDark,
+                    icon: CupertinoIcons.text_quote,
+                    iconColor: const Color(0xFF34C759),
+                    title: '歌词',
+                    subtitle: '歌词显示设置',
+                    onTap: () => openSubPage(SettingsSubPage.lyric),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // 播放设置分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '播放',
+                children: const [
+                  PlaybackSettings(),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // 网络设置分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '网络',
+                children: [
+                  NetworkSettings(onAudioSourceTap: () => openSubPage(SettingsSubPage.audioSource)),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // 存储设置分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '存储',
+                children: const [
+                  StorageSettings(),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // 关于分组
+              _buildCupertinoSettingsGroup(
+                context,
+                isDark: isDark,
+                header: '关于',
+                children: const [
+                  AboutSettings(),
+                ],
+              ),
+              
+              const SizedBox(height: 100), // 底部留白
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
   
