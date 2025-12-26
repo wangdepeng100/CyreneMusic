@@ -77,7 +77,9 @@ class ThemeManager extends ChangeNotifier {
   MobileThemeFramework get mobileThemeFramework => _mobileThemeFramework;
   bool get isMaterialFramework => _themeFramework == ThemeFramework.material;
   bool get isFluentFramework => _themeFramework == ThemeFramework.fluent;
-  bool get isCupertinoFramework => _mobileThemeFramework == MobileThemeFramework.cupertino;
+  bool get isCupertinoFramework =>
+      (Platform.isIOS || Platform.isAndroid) &&
+      _mobileThemeFramework == MobileThemeFramework.cupertino;
   WindowEffect get windowEffect => _windowEffect;
   
   /// 获取有效的主题色（Cupertino 模式下固定返回 iOS 蓝色）

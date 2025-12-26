@@ -16,7 +16,8 @@ class SystemMediaService {
   CyreneAudioHandler? _audioHandler;  // Android 媒体处理器
   bool _initialized = false;
   bool _isDisposed = false; // 是否已释放
-  
+  bool _mobileInitialized = false; // 移动端是否已初始化（延迟初始化）
+
   // 缓存上次更新的信息，避免重复更新
   int? _lastSongId;  // 使用 hashCode 作为唯一标识
   PlayerState? _lastPlayerState;
@@ -29,17 +30,27 @@ class SystemMediaService {
       if (Platform.isWindows) {
         await _initializeWindows();
       } else if (Platform.isAndroid || Platform.isIOS) {
-        await _initializeMobile();
+        // 🔧 关键修复：移动端不在启动时初始化 audio_service，避免音频系统初始化导致的杂音
+        // audio_service 将在第一次播放时才初始化（见 _ensureMobileInitialized 方法）
+        print('📱 [SystemMediaService] 移动端 audio_service 将在首次播放时初始化');
       }
-      
+
       // 监听播放器状态变化
       PlayerService().addListener(_onPlayerStateChanged);
-      
+
       _initialized = true;
       print('🎵 [SystemMediaService] 系统媒体控件初始化完成');
     } catch (e) {
       print('❌ [SystemMediaService] 初始化失败: $e');
     }
+  }
+
+  /// 确保移动端 audio_service 已初始化（首次播放时调用）
+  Future<void> _ensureMobileInitialized() async {
+    if (_mobileInitialized || !Platform.isAndroid && !Platform.isIOS) return;
+
+    await _initializeMobile();
+    _mobileInitialized = true;
   }
 
   /// 初始化 Windows 媒体控件 (SMTC)
@@ -152,11 +163,30 @@ class SystemMediaService {
     final song = player.currentSong;
     final track = player.currentTrack;
 
+    // 🔧 关键修复：在首次播放时才初始化移动端 audio_service
+    if ((Platform.isAndroid || Platform.isIOS) && !_mobileInitialized) {
+      // 只有在真正开始播放时才初始化（loading 或 playing 状态）
+      if (player.state == PlayerState.loading || player.state == PlayerState.playing) {
+        print('🎵 [SystemMediaService] 检测到首次播放，初始化 audio_service...');
+        _ensureMobileInitialized().then((_) {
+          print('✅ [SystemMediaService] audio_service 初始化完成，继续更新状态');
+          // 初始化完成后，再次触发状态更新
+          _onPlayerStateChanged();
+        }).catchError((e) {
+          print('❌ [SystemMediaService] audio_service 初始化失败: $e');
+        });
+        return; // 等待初始化完成
+      } else {
+        // 如果还没开始播放，不需要初始化
+        return;
+      }
+    }
+
     if (Platform.isWindows && _nativeSmtc != null) {
       _updateWindowsMedia(player, song, track);
     }
     // Android 平台的媒体通知由 AudioHandler 自动处理，无需在此手动更新
-    
+
     // 同时更新系统托盘菜单（updateMenu 内部已有智能检测，不会频繁更新）
     if (!_isDisposed) {
       TrayService().updateMenu();

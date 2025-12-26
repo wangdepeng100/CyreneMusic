@@ -16,6 +16,7 @@ import '../models/track.dart';
 import '../models/lyric_line.dart';
 import '../utils/lyric_parser.dart';
 import 'music_service.dart';
+import 'audio_source_service.dart';
 import 'cache_service.dart';
 import 'proxy_service.dart';
 import 'play_history_service.dart';
@@ -31,6 +32,7 @@ import 'playback_state_service.dart';
 import 'developer_mode_service.dart';
 import 'url_service.dart';
 import 'notification_service.dart';
+import 'persistent_storage_service.dart';
 import 'dart:async' as async_lib;
 import 'dart:async' show TimeoutException;
 
@@ -49,7 +51,7 @@ class PlayerService extends ChangeNotifier {
   factory PlayerService() => _instance;
   PlayerService._internal();
 
-  final ap.AudioPlayer _audioPlayer = ap.AudioPlayer();
+  ap.AudioPlayer? _audioPlayer; // 延迟初始化，避免启动时杂音
   mk.Player? _mediaKitPlayer;
   bool _useMediaKit = false;
   async_lib.StreamSubscription<bool>? _mediaKitPlayingSub;
@@ -66,7 +68,7 @@ class PlayerService extends ChangeNotifier {
   String? _currentTempFilePath;  // 记录当前临时文件路径
   final Map<String, Color> _themeColorCache = {}; // 主题色缓存
   final ValueNotifier<Color?> themeColorNotifier = ValueNotifier<Color?>(null); // 主题色通知器
-  double _volume = 1.0; // 当前音量 (0.0 - 1.0)
+  double _volume = 0.7; // 当前音量 (0.0 - 1.0)，默认 70% 避免破音
   ImageProvider? _currentCoverImageProvider; // 当前歌曲的预取封面图像提供器（避免二次请求）
   String? _currentCoverUrl; // 当前封面图对应的原始 URL（用于去重）
   
@@ -82,6 +84,12 @@ class PlayerService extends ChangeNotifier {
   List<LyricLine> _lyrics = [];
   int _currentLyricIndex = -1;
 
+  // 音源配置状态
+  bool _isAudioSourceNotConfigured = false;
+  
+  // 音源未配置回调（用于 UI 显示弹窗）
+  void Function()? onAudioSourceNotConfigured;
+
   PlayerState get state => _state;
   SongDetail? get currentSong => _currentSong;
   Track? get currentTrack => _currentTrack;
@@ -93,6 +101,9 @@ class PlayerService extends ChangeNotifier {
   bool get isLoading => _state == PlayerState.loading;
   double get volume => _volume; // 获取当前音量
   ImageProvider? get currentCoverImageProvider => _currentCoverImageProvider;
+  
+  /// 是否因音源未配置导致播放失败
+  bool get isAudioSourceNotConfigured => _isAudioSourceNotConfigured;
 
   /// 设置当前歌曲的预取封面图像提供器
   void setCurrentCoverImageProvider(
@@ -119,8 +130,91 @@ class PlayerService extends ChangeNotifier {
 
   /// 初始化播放器监听
   Future<void> initialize() async {
+    // 🔧 关键修复：不在启动时创建 AudioPlayer，避免音频系统初始化导致的杂音
+    // AudioPlayer 将在第一次播放时才创建和配置（见 _ensureAudioPlayerInitialized 方法）
+    print('🎵 [PlayerService] 播放器服务已准备就绪（AudioPlayer 将在首次播放时初始化）');
+
+    // 启动本地代理服务器
+    print('🌐 [PlayerService] 启动本地代理服务器...');
+    DeveloperModeService().addLog('🌐 [PlayerService] 启动本地代理服务器...');
+    final proxyStarted = await ProxyService().start();
+    if (proxyStarted) {
+      print('✅ [PlayerService] 本地代理服务器已就绪');
+      DeveloperModeService().addLog('✅ [PlayerService] 本地代理服务器已就绪 (端口: ${ProxyService().port})');
+    } else {
+      print('⚠️ [PlayerService] 本地代理服务器启动失败，将使用备用方案');
+      DeveloperModeService().addLog('⚠️ [PlayerService] 本地代理服务器启动失败，将使用备用方案（下载后播放）');
+    }
+
+    // 加载保存的音量设置（但不应用到播放器，因为播放器还未创建）
+    final savedVolume = PersistentStorageService().getDouble('player_volume');
+    if (savedVolume != null) {
+      _volume = savedVolume.clamp(0.0, 1.0);
+      print('🔊 [PlayerService] 已加载保存的音量: ${(_volume * 100).toInt()}%');
+    } else {
+      print('🔊 [PlayerService] 使用默认音量: ${(_volume * 100).toInt()}%');
+    }
+
+    // 设置桌面歌词播放控制回调（Windows）
+    if (Platform.isWindows) {
+      DesktopLyricService().setPlaybackControlCallback((action) {
+        print('🎮 [PlayerService] 桌面歌词控制: $action');
+        switch (action) {
+          case 'play_pause':
+            if (isPlaying) {
+              pause();
+            } else {
+              resume();
+            }
+            break;
+          case 'previous':
+            playPrevious();
+            break;
+          case 'next':
+            playNext();
+            break;
+        }
+      });
+      print('✅ [PlayerService] 桌面歌词播放控制回调已设置');
+    }
+
+    print('🎵 [PlayerService] 播放器初始化完成');
+  }
+
+  /// 确保 AudioPlayer 已初始化（首次播放时调用）
+  Future<void> _ensureAudioPlayerInitialized() async {
+    if (_audioPlayer != null) return;
+
+    print('🎵 [PlayerService] 首次播放，正在初始化 AudioPlayer...');
+    _audioPlayer = ap.AudioPlayer();
+
+    // 配置音频播放器（Android）
+    if (Platform.isAndroid) {
+      try {
+        // 设置音频上下文
+        await _audioPlayer!.setAudioContext(
+          ap.AudioContext(
+            android: const ap.AudioContextAndroid(
+              isSpeakerphoneOn: false,
+              stayAwake: true,
+              contentType: ap.AndroidContentType.music,
+              usageType: ap.AndroidUsageType.media,
+              audioFocus: ap.AndroidAudioFocus.gain,
+            ),
+          ),
+        );
+        print('✅ [PlayerService] Android 音频上下文已配置');
+      } catch (e) {
+        print('⚠️ [PlayerService] 配置音频上下文失败: $e');
+      }
+    }
+
+    // 应用保存的音量设置
+    await _audioPlayer!.setVolume(_volume);
+    print('🔊 [PlayerService] 已应用音量设置: ${(_volume * 100).toInt()}%');
+
     // 监听播放状态
-    _audioPlayer.onPlayerStateChanged.listen((state) {
+    _audioPlayer!.onPlayerStateChanged.listen((state) {
       switch (state) {
         case ap.PlayerState.playing:
           _state = PlayerState.playing;
@@ -181,7 +275,7 @@ class PlayerService extends ChangeNotifier {
     });
 
     // 监听播放进度
-    _audioPlayer.onPositionChanged.listen((position) {
+    _audioPlayer!.onPositionChanged.listen((position) {
       _position = position;
       _updateFloatingLyric(); // 更新桌面/悬浮歌词
       // 🔥 通知Android原生层播放位置（后台歌词更新关键）
@@ -192,47 +286,12 @@ class PlayerService extends ChangeNotifier {
     });
 
     // 监听总时长
-    _audioPlayer.onDurationChanged.listen((duration) {
+    _audioPlayer!.onDurationChanged.listen((duration) {
       _duration = duration;
       notifyListeners();
     });
 
-    // 启动本地代理服务器
-    print('🌐 [PlayerService] 启动本地代理服务器...');
-    DeveloperModeService().addLog('🌐 [PlayerService] 启动本地代理服务器...');
-    final proxyStarted = await ProxyService().start();
-    if (proxyStarted) {
-      print('✅ [PlayerService] 本地代理服务器已就绪');
-      DeveloperModeService().addLog('✅ [PlayerService] 本地代理服务器已就绪 (端口: ${ProxyService().port})');
-    } else {
-      print('⚠️ [PlayerService] 本地代理服务器启动失败，将使用备用方案');
-      DeveloperModeService().addLog('⚠️ [PlayerService] 本地代理服务器启动失败，将使用备用方案（下载后播放）');
-    }
-    
-    // 设置桌面歌词播放控制回调（Windows）
-    if (Platform.isWindows) {
-      DesktopLyricService().setPlaybackControlCallback((action) {
-        print('🎮 [PlayerService] 桌面歌词控制: $action');
-        switch (action) {
-          case 'play_pause':
-            if (isPlaying) {
-              pause();
-            } else {
-              resume();
-            }
-            break;
-          case 'previous':
-            playPrevious();
-            break;
-          case 'next':
-            playNext();
-            break;
-        }
-      });
-      print('✅ [PlayerService] 桌面歌词播放控制回调已设置');
-    }
-
-    print('🎵 [PlayerService] 播放器初始化完成');
+    print('✅ [PlayerService] AudioPlayer 初始化完成');
   }
 
   /// 播放歌曲（通过Track对象）
@@ -244,6 +303,29 @@ class PlayerService extends ChangeNotifier {
     bool fromPlaylist = false,
   }) async {
     try {
+      // 🔧 关键修复：首次播放时才初始化 AudioPlayer，避免启动时的杂音
+      await _ensureAudioPlayerInitialized();
+
+      // ✅ 提前检查音源配置（仅对在线音乐）
+      // 本地音乐不需要音源，直接跳过此检查
+      if (track.source != MusicSource.local) {
+        if (!AudioSourceService().isConfigured) {
+          print('⚠️ [PlayerService] 音源未配置，无法播放在线音乐');
+          _state = PlayerState.error;
+          _errorMessage = '音源未配置，请在设置中配置音源';
+          _isAudioSourceNotConfigured = true;
+          // ⚠️ 注意：不设置 _currentTrack，避免 UI 显示"正在播放"
+          notifyListeners();
+          
+          // 调用回调通知 UI 显示提示
+          if (onAudioSourceNotConfigured != null) {
+            print('🔔 [PlayerService] 调用音源未配置回调');
+            onAudioSourceNotConfigured!();
+          }
+          return;
+        }
+      }
+
       // 仅在歌单场景下检测 Apple Music 歌曲换源限制
       // 搜索结果页可以直接播放（使用后端 Widevine 解密）
       if (fromPlaylist && track.source == MusicSource.apple) {
@@ -277,6 +359,7 @@ class PlayerService extends ChangeNotifier {
       _currentTrack = track;
       _currentSong = null;
       _errorMessage = null;
+      _isAudioSourceNotConfigured = false;  // 重置标志
       await _updateCoverImage(track.picUrl, notify: false);
       notifyListeners();
 
@@ -328,7 +411,7 @@ class PlayerService extends ChangeNotifier {
           _loadLyricsForFloatingDisplay();
 
           // 播放缓存文件
-          await _audioPlayer.play(ap.DeviceFileSource(cachedFilePath));
+          await _audioPlayer!.play(ap.DeviceFileSource(cachedFilePath));
           print('✅ [PlayerService] 从缓存播放: $cachedFilePath');
           print('📝 [PlayerService] 歌词已从缓存恢复 (长度: ${_currentSong!.lyric.length})');
           
@@ -412,7 +495,7 @@ class PlayerService extends ChangeNotifier {
         notifyListeners();
         _loadLyricsForFloatingDisplay();
 
-        await _audioPlayer.play(ap.DeviceFileSource(filePath));
+        await _audioPlayer!.play(ap.DeviceFileSource(filePath));
         print('✅ [PlayerService] 播放本地文件: $filePath');
         _extractThemeColorInBackground(track.picUrl);
         return;
@@ -518,7 +601,7 @@ class PlayerService extends ChangeNotifier {
             }
             
             // 流式播放
-            await _audioPlayer.play(ap.UrlSource(songDetail.url));
+            await _audioPlayer!.play(ap.UrlSource(songDetail.url));
             print('✅ [PlayerService] Apple Music 解密流播放成功');
             DeveloperModeService().addLog('✅ [PlayerService] Apple Music 解密流播放成功');
             return;
@@ -563,7 +646,7 @@ class PlayerService extends ChangeNotifier {
           
           try {
             // 先尝试流式播放
-            await _audioPlayer.play(ap.UrlSource(serverProxyUrl));
+            await _audioPlayer!.play(ap.UrlSource(serverProxyUrl));
             print('✅ [PlayerService] 通过服务器代理流式播放成功');
             DeveloperModeService().addLog('✅ [PlayerService] 通过服务器代理流式播放成功');
           } catch (playError) {
@@ -587,7 +670,7 @@ class PlayerService extends ChangeNotifier {
             DeveloperModeService().addLog('🔗 [PlayerService] 本地代理URL: ${proxyUrl.length > 80 ? '${proxyUrl.substring(0, 80)}...' : proxyUrl}');
             
             try {
-              await _audioPlayer.play(ap.UrlSource(proxyUrl));
+              await _audioPlayer!.play(ap.UrlSource(proxyUrl));
               print('✅ [PlayerService] 通过本地代理开始流式播放');
               DeveloperModeService().addLog('✅ [PlayerService] 通过本地代理开始流式播放');
             } catch (playError) {
@@ -598,7 +681,7 @@ class PlayerService extends ChangeNotifier {
                 // Apple Music 不支持“下载后播放”（m3u8 不是音频文件）
                 try {
                   DeveloperModeService().addLog('🔄 [PlayerService] Apple 尝试直接播放原始 URL');
-                  await _audioPlayer.play(ap.UrlSource(songDetail.url));
+                  await _audioPlayer!.play(ap.UrlSource(songDetail.url));
                 } catch (e) {
                   _state = PlayerState.error;
                   _errorMessage = 'Apple Music 播放失败（本地代理/直连均失败）';
@@ -622,7 +705,7 @@ class PlayerService extends ChangeNotifier {
               // Apple Music 不支持“下载后播放”（m3u8 不是音频文件）
               try {
                 DeveloperModeService().addLog('🔄 [PlayerService] Apple 尝试直接播放原始 URL');
-                await _audioPlayer.play(ap.UrlSource(songDetail.url));
+                await _audioPlayer!.play(ap.UrlSource(songDetail.url));
               } catch (e) {
                 _state = PlayerState.error;
                 _errorMessage = 'Apple Music 播放失败（本地代理不可用且直连失败）';
@@ -639,7 +722,7 @@ class PlayerService extends ChangeNotifier {
         }
       } else {
         // 网易云音乐直接播放
-        await _audioPlayer.play(ap.UrlSource(songDetail.url));
+        await _audioPlayer!.play(ap.UrlSource(songDetail.url));
         print('✅ [PlayerService] 开始播放: ${songDetail.url}');
         DeveloperModeService().addLog('✅ [PlayerService] 开始播放网易云音乐');
       }
@@ -653,9 +736,26 @@ class PlayerService extends ChangeNotifier {
       
       // 5. 后台提取主题色（为播放器页面预加载）
       _extractThemeColorInBackground(songDetail.pic);
+    } on AudioSourceNotConfiguredException catch (e) {
+      // 音源未配置，设置特殊错误状态
+      _state = PlayerState.error;
+      _errorMessage = e.message;
+      _isAudioSourceNotConfigured = true;  // 标记为音源未配置
+      print('⚠️ [PlayerService] 音源未配置: ${e.message}');
+      print('🔔 [PlayerService] 回调状态: ${onAudioSourceNotConfigured == null ? "未设置" : "已设置"}');
+      notifyListeners();
+      // 调用回调通知 UI 显示弹窗
+      if (onAudioSourceNotConfigured != null) {
+        print('🔔 [PlayerService] 正在调用音源未配置回调...');
+        onAudioSourceNotConfigured!();
+        print('🔔 [PlayerService] 回调调用完成');
+      } else {
+        print('⚠️ [PlayerService] 回调未设置，无法显示弹窗');
+      }
     } catch (e) {
       _state = PlayerState.error;
       _errorMessage = '播放失败: $e';
+      _isAudioSourceNotConfigured = false;
       print('❌ [PlayerService] 播放异常: $e');
       notifyListeners();
     }
@@ -690,7 +790,7 @@ class PlayerService extends ChangeNotifier {
         DeveloperModeService().addLog('✅ [PlayerService] 代理下载完成: ${(response.bodyBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
         
         // 播放临时文件
-        await _audioPlayer.play(ap.DeviceFileSource(tempFilePath));
+        await _audioPlayer!.play(ap.DeviceFileSource(tempFilePath));
         print('▶️ [PlayerService] 开始播放临时文件');
         DeveloperModeService().addLog('▶️ [PlayerService] 开始播放临时文件');
         
@@ -861,7 +961,7 @@ class PlayerService extends ChangeNotifier {
         DeveloperModeService().addLog('✅ [PlayerService] 下载完成: ${(response.bodyBytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
         
         // 播放临时文件
-        await _audioPlayer.play(ap.DeviceFileSource(tempFilePath));
+        await _audioPlayer!.play(ap.DeviceFileSource(tempFilePath));
         print('▶️ [PlayerService] 开始播放临时文件');
         DeveloperModeService().addLog('▶️ [PlayerService] 开始播放临时文件');
         
@@ -895,6 +995,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   /// 更新封面 Provider，统一管理封面缓存与刷新
+  /// 支持网络 URL 和本地文件路径
   Future<void> _updateCoverImage(String? imageUrl, {bool notify = true}) async {
     print('🖼️ [PlayerService] _updateCoverImage 调用, imageUrl: ${imageUrl ?? "null"}');
     
@@ -911,7 +1012,24 @@ class PlayerService extends ChangeNotifier {
     }
 
     try {
-      final provider = CachedNetworkImageProvider(imageUrl);
+      // 判断是网络 URL 还是本地文件路径
+      final isNetwork = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+      
+      ImageProvider provider;
+      if (isNetwork) {
+        // 网络图片：使用 CachedNetworkImageProvider
+        provider = CachedNetworkImageProvider(imageUrl);
+      } else {
+        // 本地文件：使用 FileImage
+        final file = File(imageUrl);
+        if (!await file.exists()) {
+          print('⚠️ [PlayerService] 本地封面文件不存在: $imageUrl');
+          setCurrentCoverImageProvider(null, shouldNotify: notify);
+          return;
+        }
+        provider = FileImage(file);
+      }
+      
       // 预热缓存，避免迷你播放器和全屏播放器重复请求
       provider.resolve(const ImageConfiguration());
       setCurrentCoverImageProvider(
@@ -997,9 +1115,23 @@ class PlayerService extends ChangeNotifier {
   }
 
   /// 从整张图片提取主题色（使用 PaletteGenerator，会阻塞主线程 - 仅作为备用）
+  /// 支持网络 URL 和本地文件路径
   Future<Color?> _extractColorFromFullImage(String imageUrl) async {
     try {
-      final imageProvider = CachedNetworkImageProvider(imageUrl);
+      // 判断是网络 URL 还是本地文件路径
+      final isNetwork = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+      final ImageProvider imageProvider;
+      
+      if (isNetwork) {
+        imageProvider = CachedNetworkImageProvider(imageUrl);
+      } else {
+        final file = File(imageUrl);
+        if (!await file.exists()) {
+          print('⚠️ [PlayerService] 本地封面文件不存在: $imageUrl');
+          return null;
+        }
+        imageProvider = FileImage(file);
+      }
       
       final paletteGenerator = await PaletteGenerator.fromImageProvider(
         imageProvider,
@@ -1021,9 +1153,23 @@ class PlayerService extends ChangeNotifier {
   }
 
   /// 从图片底部区域提取主题色（用于移动端渐变模式）
+  /// 支持网络 URL 和本地文件路径
   Future<Color?> _extractColorFromBottomRegion(String imageUrl) async {
     try {
-      final imageProvider = CachedNetworkImageProvider(imageUrl);
+      // 判断是网络 URL 还是本地文件路径
+      final isNetwork = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+      final ImageProvider imageProvider;
+      
+      if (isNetwork) {
+        imageProvider = CachedNetworkImageProvider(imageUrl);
+      } else {
+        final file = File(imageUrl);
+        if (!await file.exists()) {
+          print('⚠️ [PlayerService] 本地封面文件不存在: $imageUrl');
+          return null;
+        }
+        imageProvider = FileImage(file);
+      }
       
       // ✅ 优化：使用缩略图加载，减少处理时间
       final imageStream = imageProvider.resolve(
@@ -1089,8 +1235,8 @@ class PlayerService extends ChangeNotifier {
     try {
       if (_useMediaKit && _mediaKitPlayer != null) {
         await _mediaKitPlayer!.pause();
-      } else {
-        await _audioPlayer.pause();
+      } else if (_audioPlayer != null) {
+        await _audioPlayer!.pause();
       }
       _pauseListeningTimeTracking();
       print('⏸️ [PlayerService] 暂停播放');
@@ -1104,8 +1250,8 @@ class PlayerService extends ChangeNotifier {
     try {
       if (_useMediaKit && _mediaKitPlayer != null) {
         await _mediaKitPlayer!.play();
-      } else {
-        await _audioPlayer.resume();
+      } else if (_audioPlayer != null) {
+        await _audioPlayer!.resume();
       }
       _startListeningTimeTracking();
       print('▶️ [PlayerService] 继续播放');
@@ -1119,16 +1265,16 @@ class PlayerService extends ChangeNotifier {
     try {
       if (_useMediaKit && _mediaKitPlayer != null) {
         await _mediaKitPlayer!.stop();
-      } else {
-        await _audioPlayer.stop();
+      } else if (_audioPlayer != null) {
+        await _audioPlayer!.stop();
       }
-      
+
       // 清理临时文件
       await _cleanupCurrentTempFile();
-      
+
       // 停止听歌时长追踪
       _pauseListeningTimeTracking();
-      
+
       _state = PlayerState.idle;
       _currentSong = null;
       _currentTrack = null;
@@ -1148,8 +1294,8 @@ class PlayerService extends ChangeNotifier {
     try {
       if (_useMediaKit && _mediaKitPlayer != null) {
         await _mediaKitPlayer!.seek(position);
-      } else {
-        await _audioPlayer.seek(position);
+      } else if (_audioPlayer != null) {
+        await _audioPlayer!.seek(position);
       }
       print('⏩ [PlayerService] 跳转到: ${position.inSeconds}s');
     } catch (e) {
@@ -1161,18 +1307,32 @@ class PlayerService extends ChangeNotifier {
   Future<void> setVolume(double volume) async {
     try {
       final clampedVolume = volume.clamp(0.0, 1.0);
+      _volume = clampedVolume;
+
+      // 只有在播放器已初始化时才应用音量
       if (_useMediaKit && _mediaKitPlayer != null) {
         await _mediaKitPlayer!.setVolume(clampedVolume * 100);
-      } else {
-        await _audioPlayer.setVolume(clampedVolume);
+      } else if (_audioPlayer != null) {
+        await _audioPlayer!.setVolume(clampedVolume);
       }
-      _volume = clampedVolume;
+
+      await _saveVolume(); // 保存音量设置
       notifyListeners(); // 通知监听器音量已改变
       print('🔊 [PlayerService] 音量设置为: ${(clampedVolume * 100).toInt()}%');
     } catch (e) {
       print('❌ [PlayerService] 音量设置失败: $e');
     }
   }
+
+  /// 保存音量设置
+  Future<void> _saveVolume() async {
+    try {
+      await PersistentStorageService().setDouble('player_volume', _volume);
+    } catch (e) {
+      print('❌ [PlayerService] 保存音量失败: $e');
+    }
+  }
+
 
   Future<void> _ensureMediaKitPlayer() async {
     if (_mediaKitPlayer != null) return;
@@ -1237,7 +1397,9 @@ class PlayerService extends ChangeNotifier {
 
     try {
       // 避免与 audioplayers 同时占用设备
-      await _audioPlayer.stop();
+      if (_audioPlayer != null) {
+        await _audioPlayer!.stop();
+      }
     } catch (_) {}
 
     final url = ProxyService().isRunning
@@ -1379,34 +1541,37 @@ class PlayerService extends ChangeNotifier {
     _stopStateSaveTimer();
     // 同步清理当前临时文件
     _cleanupCurrentTempFile();
-    _audioPlayer.stop();
-    _audioPlayer.dispose();
+    // 只有在 AudioPlayer 已初始化时才释放
+    if (_audioPlayer != null) {
+      _audioPlayer!.stop();
+      _audioPlayer!.dispose();
+    }
     // 停止代理服务器
     ProxyService().stop();
     // 清理主题色通知器
     themeColorNotifier.dispose();
     super.dispose();
   }
-  
+
   /// 强制释放所有资源（用于应用退出时）
   Future<void> forceDispose() async {
     try {
       print('🗑️ [PlayerService] 强制释放播放器资源...');
-      
+
       // 清理当前播放的临时文件
       await _cleanupCurrentTempFile();
-      
+
       // 清理所有临时缓存文件
       await CacheService().cleanTempFiles();
-      
+
       // 停止代理服务器
       await ProxyService().stop();
-      
+
       // 先移除所有监听器，防止状态改变时触发通知
       print('🔌 [PlayerService] 移除所有监听器...');
       // 注意：这里不能直接访问 _listeners，因为 ChangeNotifier 不暴露它
       // 但是我们可以通过设置一个标志来阻止 notifyListeners 生效
-      
+
       // 立即清理状态（不触发通知）
       _state = PlayerState.idle;
       _currentSong = null;
@@ -1414,17 +1579,20 @@ class PlayerService extends ChangeNotifier {
       _position = Duration.zero;
       _duration = Duration.zero;
       setCurrentCoverImageProvider(null, shouldNotify: false);
-      
-      // 使用 unawaited 方式，不等待完成，直接继续
-      // 因为应用即将退出，操作系统会自动清理资源
-      _audioPlayer.stop().catchError((e) {
-        print('⚠️ [PlayerService] 停止播放失败: $e');
-      });
-      
-      _audioPlayer.dispose().catchError((e) {
-        print('⚠️ [PlayerService] 释放资源失败: $e');
-      });
-      
+
+      // 只有在 AudioPlayer 已初始化时才释放
+      if (_audioPlayer != null) {
+        // 使用 unawaited 方式，不等待完成，直接继续
+        // 因为应用即将退出，操作系统会自动清理资源
+        _audioPlayer!.stop().catchError((e) {
+          print('⚠️ [PlayerService] 停止播放失败: $e');
+        });
+
+        _audioPlayer!.dispose().catchError((e) {
+          print('⚠️ [PlayerService] 释放资源失败: $e');
+        });
+      }
+
       print('✅ [PlayerService] 播放器资源清理指令已发出');
     } catch (e) {
       print('❌ [PlayerService] 释放资源失败: $e');
@@ -1469,10 +1637,12 @@ class PlayerService extends ChangeNotifier {
   /// 清除当前播放会话
   Future<void> clearSession() async {
     print('🗑️ [PlayerService] 清除播放会话...');
-    
-    // 停止播放
-    await _audioPlayer.stop();
-    
+
+    // 停止播放（只有在播放器已初始化时）
+    if (_audioPlayer != null) {
+      await _audioPlayer!.stop();
+    }
+
     // 清除状态
     _state = PlayerState.idle;
     _currentSong = null;
@@ -1483,26 +1653,26 @@ class PlayerService extends ChangeNotifier {
     _currentCoverImageProvider = null;
     _currentCoverUrl = null;
     themeColorNotifier.value = null;
-    
+
     // 清除临时文件
     await _cleanupCurrentTempFile();
-    
+
     // 停止计时器
     _stopStateSaveTimer();
     _pauseListeningTimeTracking();
-    
+
     // 清除通知
     // 注意：这可能需要在 NotificationService 中处理
-    
+
     // 更新UI
     notifyListeners();
-    
+
     // 🔥 通知Android原生层
     if (Platform.isAndroid) {
       AndroidFloatingLyricService().setPlayingState(false);
       AndroidFloatingLyricService().updatePosition(Duration.zero);
     }
-    
+
     print('✅ [PlayerService] 播放会话已清除');
   }
 
@@ -1697,6 +1867,8 @@ class PlayerService extends ChangeNotifier {
           _lyrics = LyricParser.parseNeteaseLyric(
             currentSong.lyric,
             translation: currentSong.tlyric.isNotEmpty ? currentSong.tlyric : null,
+            yrcLyric: currentSong.yrc.isNotEmpty ? currentSong.yrc : null,
+            yrcTranslation: currentSong.ytlrc.isNotEmpty ? currentSong.ytlrc : null,
           );
           break;
         case 'qq':
@@ -1715,6 +1887,8 @@ class PlayerService extends ChangeNotifier {
           _lyrics = LyricParser.parseNeteaseLyric(
             currentSong.lyric,
             translation: currentSong.tlyric.isNotEmpty ? currentSong.tlyric : null,
+            yrcLyric: currentSong.yrc.isNotEmpty ? currentSong.yrc : null,
+            yrcTranslation: currentSong.ytlrc.isNotEmpty ? currentSong.ytlrc : null,
           );
       }
 
@@ -1797,17 +1971,20 @@ class PlayerService extends ChangeNotifier {
   }
   
   /// 手动更新悬浮歌词（供后台服务调用）
-  /// 
+  ///
   /// 这个方法由 AudioHandler 的定时器调用，确保即使应用在后台，
   /// 悬浮歌词也能持续更新
   Future<void> updateFloatingLyricManually() async {
+    // 只有在播放器已初始化时才更新
+    if (_audioPlayer == null) return;
+
     // 🔥 关键修复：主动获取播放器的当前位置，而不是依赖 onPositionChanged 事件
     // 因为在后台时，onPositionChanged 事件可能被系统节流或延迟
     try {
-      final currentPos = await _audioPlayer.getCurrentPosition();
+      final currentPos = await _audioPlayer!.getCurrentPosition();
       if (currentPos != null) {
         _position = currentPos;
-        
+
         // 同步位置到原生层，让原生层可以基于最新的位置进行自动推进
         if (Platform.isAndroid && AndroidFloatingLyricService().isVisible) {
           AndroidFloatingLyricService().updatePosition(_position);
@@ -1816,7 +1993,7 @@ class PlayerService extends ChangeNotifier {
     } catch (e) {
       // 忽略获取位置失败的错误，使用缓存的位置
     }
-    
+
     _updateFloatingLyric();
   }
 

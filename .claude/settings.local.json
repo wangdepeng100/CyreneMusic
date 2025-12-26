@@ -3,7 +3,14 @@
     "allow": [
       "Bash(flutter analyze:*)",
       "Bash(tasklist:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(bun run dev)",
+      "Bash(timeout:*)",
+      "Bash(exit:*)",
+      "Bash(ping:*)"
     ]
   }
 }

@@ -23,6 +23,7 @@ import 'settings_page/about_settings.dart';
 import 'settings_page/appearance_settings_page.dart';
 import 'settings_page/third_party_accounts_page.dart';
 import 'settings_page/lyric_settings_page.dart';
+import 'settings_page/audio_source_settings_page.dart';
 
 /// 设置页面子页面枚举
 enum SettingsSubPage {
@@ -30,6 +31,7 @@ enum SettingsSubPage {
   appearance,
   thirdPartyAccounts,
   lyric,
+  audioSource,
 }
 
 /// 设置页面
@@ -267,7 +269,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 24),
                     
                     // 网络设置
-                    const NetworkSettings(),
+                    NetworkSettings(onAudioSourceTap: () => openSubPage(SettingsSubPage.audioSource)),
                     const SizedBox(height: 24),
                     
                     // 存储设置
@@ -294,6 +296,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return '第三方账号管理';
       case SettingsSubPage.lyric:
         return '歌词设置';
+      case SettingsSubPage.audioSource:
+        return '音源设置';
       case SettingsSubPage.none:
         return '设置';
     }
@@ -308,6 +312,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return ThirdPartyAccountsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.lyric:
         return LyricSettingsContent(onBack: closeSubPage, embed: true);
+      case SettingsSubPage.audioSource:
+        return AudioSourceSettingsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.none:
         return const SizedBox.shrink();
     }
@@ -444,8 +450,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   context,
                   isDark: isDark,
                   header: '网络',
-                  children: const [
-                    NetworkSettings(),
+                  children: [
+                    NetworkSettings(onAudioSourceTap: () => openSubPage(SettingsSubPage.audioSource)),
                   ],
                 ),
                 
@@ -642,6 +648,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return ThirdPartyAccountsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.lyric:
         return LyricSettingsContent(onBack: closeSubPage, embed: true);
+      case SettingsSubPage.audioSource:
+        return AudioSourceSettingsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.none:
         return const SizedBox.shrink();
     }
@@ -706,7 +714,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 16),
                     
                     // 网络设置
-                    const NetworkSettings(),
+                    NetworkSettings(onAudioSourceTap: () => openSubPage(SettingsSubPage.audioSource)),
                     const SizedBox(height: 16),
                     
                     // 存储设置
@@ -733,6 +741,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return ThirdPartyAccountsContent(onBack: closeSubPage).buildFluentBreadcrumb(context);
       case SettingsSubPage.lyric:
         return LyricSettingsContent(onBack: closeSubPage).buildFluentBreadcrumb(context);
+      case SettingsSubPage.audioSource:
+        return AudioSourceSettingsContent(onBack: closeSubPage).buildFluentBreadcrumb(context);
       case SettingsSubPage.none:
         return const Text('设置');
     }
@@ -747,6 +757,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return ThirdPartyAccountsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.lyric:
         return LyricSettingsContent(onBack: closeSubPage, embed: true);
+      case SettingsSubPage.audioSource:
+        return AudioSourceSettingsContent(onBack: closeSubPage, embed: true);
       case SettingsSubPage.none:
         return const SizedBox.shrink();
     }

@@ -14,7 +14,7 @@ class UrlService extends ChangeNotifier {
   UrlService._internal();
 
   /// 官方源地址
-  static const String officialBaseUrl = 'https://music.cyrene.ltd';
+  static const String officialBaseUrl = 'http://127.0.0.1:4055';
 
   /// 当前源类型
   BackendSourceType _sourceType = BackendSourceType.official;

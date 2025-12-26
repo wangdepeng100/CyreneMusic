@@ -27,13 +27,16 @@ import 'package:cyrene_music/services/permission_service.dart';
 import 'package:cyrene_music/services/system_media_service.dart';
 import 'package:cyrene_music/services/tray_service.dart';
 import 'package:cyrene_music/services/url_service.dart';
+import 'package:cyrene_music/services/audio_source_service.dart';
 import 'package:cyrene_music/services/version_service.dart';
 import 'package:cyrene_music/services/mini_player_window_service.dart';
+import 'package:cyrene_music/services/local_library_service.dart';
 import 'package:cyrene_music/pages/mini_player_window_page.dart';
 import 'package:cyrene_music/utils/theme_manager.dart';
 import 'package:cyrene_music/services/startup_logger.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:cyrene_music/pages/settings_page/audio_source_settings.dart';
 
 // 条件导入 flutter_displaymode（仅 Android）
 import 'package:flutter_displaymode/flutter_displaymode.dart' if (dart.library.html) '';
@@ -176,7 +179,12 @@ Future<void> main() async {
     await timed('UrlService.initialize', () async {
       await UrlService().initialize();
     });
-    log(' URL 服务已初始化');
+    log('✅ URL 服务已初始化');
+  
+    await timed('AudioSourceService.initialize', () async {
+      await AudioSourceService().initialize();
+    });
+    log('✅ 音源服务已初始化');
   
     await timed('VersionService.initialize', () async {
       await VersionService().initialize();
@@ -207,6 +215,11 @@ Future<void> main() async {
       await PlayerService().initialize();
     });
     log(' 播放器服务已初始化');
+
+    await timed('LocalLibraryService.init', () async {
+      await LocalLibraryService().init();
+    });
+    log(' 本地音乐库服务已初始化');
   
     await timed('LyricStyleService.initialize', () async {
       await LyricStyleService().initialize();
@@ -326,8 +339,51 @@ Future<void> main() async {
   });
  }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+  
+  // 全局 Navigator Key（用于在任何地方显示对话框）
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    // 延迟设置回调，确保 Navigator 已经初始化
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _setupAudioSourceCallback();
+    });
+  }
+
+  void _setupAudioSourceCallback() {
+    PlayerService().onAudioSourceNotConfigured = () {
+      print('🔔 [MyApp] 音源未配置回调被触发');
+      // 优先使用 _GlobalContextHolder（包含正确的 Localizations）
+      final globalContext = _GlobalContextHolder.context;
+      final navigatorContext = MyApp.navigatorKey.currentContext;
+      final contextToUse = globalContext ?? navigatorContext;
+      
+      if (contextToUse != null) {
+        print('🔔 [MyApp] 使用 ${globalContext != null ? "GlobalContextHolder" : "navigatorKey"} context 显示弹窗');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showAudioSourceNotConfiguredDialog(contextToUse);
+        });
+      } else {
+        print('⚠️ [MyApp] 无法获取有效的 context');
+      }
+    };
+    print('✅ [MyApp] 音源未配置回调已设置');
+  }
+
+  @override
+  void dispose() {
+    PlayerService().onAudioSourceNotConfigured = null;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -354,6 +410,14 @@ class MyApp extends StatelessWidget {
                 darkTheme: themeManager.buildFluentThemeData(Brightness.dark),
                 themeMode: _mapMaterialThemeMode(themeManager.themeMode),
                 scrollBehavior: const _FluentScrollBehavior(),
+                builder: (context, child) {
+                  // 保存 Navigator context 供全局使用
+                  _GlobalContextHolder._context = context;
+                  // 添加 ScaffoldMessenger 支持 SnackBar（即使在 Fluent UI 中）
+                  return ScaffoldMessenger(
+                    child: child ?? const SizedBox.shrink(),
+                  );
+                },
                 home: isMiniMode ? const MiniPlayerWindowPage() : const FluentMainLayout(),
               );
             },
@@ -374,6 +438,7 @@ class MyApp extends StatelessWidget {
           return MaterialApp(
             title: 'Cyrene Music',
             debugShowCheckedModeBanner: false,
+            navigatorKey: MyApp.navigatorKey,
             theme: lightTheme.copyWith(
               cupertinoOverrideTheme: themeManager.buildCupertinoThemeData(Brightness.light),
             ),
@@ -382,6 +447,8 @@ class MyApp extends StatelessWidget {
             ),
             themeMode: themeManager.themeMode,
             builder: (context, child) {
+              // 保存 Navigator context 供全局使用
+              _GlobalContextHolder._context = context;
               return CupertinoTheme(
                 data: cupertinoTheme,
                 child: child ?? const SizedBox.shrink(),
@@ -394,9 +461,15 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Cyrene Music',
           debugShowCheckedModeBanner: false,
+          navigatorKey: MyApp.navigatorKey,
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode: themeManager.themeMode,
+          builder: (context, child) {
+            // 保存 Navigator context 供全局使用
+            _GlobalContextHolder._context = context;
+            return child ?? const SizedBox.shrink();
+          },
           home: Platform.isWindows
             ? _WindowsRoundedContainer(child: const MainLayout())
             : const MainLayout(),
@@ -405,6 +478,13 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
+/// 全局 Context 保存器
+class _GlobalContextHolder {
+  static BuildContext? _context;
+  static BuildContext? get context => _context;
+}
+
 
 fluent.ThemeMode _mapMaterialThemeMode(ThemeMode mode) {
   switch (mode) {

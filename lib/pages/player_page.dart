@@ -277,6 +277,8 @@ class _PlayerPageState extends State<PlayerPage> with WindowListener, TickerProv
             _lyrics = LyricParser.parseNeteaseLyric(
               song.lyric,
               translation: song.tlyric.isNotEmpty ? song.tlyric : null,
+              yrcLyric: song.yrc.isNotEmpty ? song.yrc : null,
+              yrcTranslation: song.ytlrc.isNotEmpty ? song.ytlrc : null,
             );
             break;
           case 'qq':
@@ -296,6 +298,8 @@ class _PlayerPageState extends State<PlayerPage> with WindowListener, TickerProv
             _lyrics = LyricParser.parseNeteaseLyric(
               song.lyric,
               translation: song.tlyric.isNotEmpty ? song.tlyric : null,
+              yrcLyric: song.yrc.isNotEmpty ? song.yrc : null,
+              yrcTranslation: song.ytlrc.isNotEmpty ? song.ytlrc : null,
             );
             break;
         }

@@ -1,14 +1,37 @@
+/// 逐字歌词中的单个字/词
+class LyricWord {
+  final Duration startTime;
+  final Duration duration;
+  final String text;
+
+  LyricWord({
+    required this.startTime,
+    required this.duration,
+    required this.text,
+  });
+
+  /// 结束时间
+  Duration get endTime => startTime + duration;
+}
+
 /// 歌词行模型
 class LyricLine {
   final Duration startTime;
   final String text;
   final String? translation; // 翻译歌词
+  final List<LyricWord>? words; // 逐字歌词（可选）
+  final Duration? lineDuration; // 行持续时间（可选，用于YRC格式）
 
   LyricLine({
     required this.startTime,
     required this.text,
     this.translation,
+    this.words,
+    this.lineDuration,
   });
+
+  /// 是否包含逐字歌词
+  bool get hasWordByWord => words != null && words!.isNotEmpty;
 
   /// 从时间戳字符串解析 Duration
   static Duration? parseTime(String timeStr) {

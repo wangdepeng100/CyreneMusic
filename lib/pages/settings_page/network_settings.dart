@@ -5,13 +5,17 @@ import 'package:flutter/cupertino.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent_ui;
 import 'package:http/http.dart' as http;
 import '../../services/url_service.dart';
+import '../../services/audio_source_service.dart';
 import '../../widgets/fluent_settings_card.dart';
 import '../../widgets/cupertino/cupertino_settings_widgets.dart';
 import '../../utils/theme_manager.dart';
 
 /// 网络设置组件
 class NetworkSettings extends StatefulWidget {
-  const NetworkSettings({super.key});
+  /// 点击音源设置时的回调，用于在设置页面中打开子页面
+  final VoidCallback? onAudioSourceTap;
+  
+  const NetworkSettings({super.key, this.onAudioSourceTap});
 
   @override
   State<NetworkSettings> createState() => _NetworkSettingsState();
@@ -76,6 +80,15 @@ class _NetworkSettingsState extends State<NetworkSettings> {
             onTap: () => _showBackendSourceDialogFluent(context),
           ),
           FluentSettingsTile(
+            icon: Icons.music_note,
+            title: '音源设置',
+            subtitle: AudioSourceService().isConfigured
+                ? AudioSourceService().getSourceDescription()
+                : '未配置（点击配置）',
+            trailing: const Icon(Icons.chevron_right),
+            onTap: widget.onAudioSourceTap,
+          ),
+          FluentSettingsTile(
             icon: Icons.wifi_tethering,
             title: '测试连接',
             subtitle: _errorMessage != null
@@ -107,6 +120,18 @@ class _NetworkSettingsState extends State<NetworkSettings> {
               ),
               const Divider(height: 1),
               ListTile(
+                leading: const Icon(Icons.music_note),
+                title: const Text('音源设置'),
+                subtitle: Text(
+                  AudioSourceService().isConfigured
+                      ? AudioSourceService().getSourceDescription()
+                      : '未配置（点击配置）',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: widget.onAudioSourceTap,
+              ),
+              const Divider(height: 1),
+              ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('测试连接'),
                 subtitle: Text(
@@ -134,6 +159,17 @@ class _NetworkSettingsState extends State<NetworkSettings> {
           subtitle: UrlService().getSourceDescription(),
           showChevron: true,
           onTap: () => _showBackendSourceDialogCupertino(context),
+        ),
+        const SizedBox(height: 1),
+        CupertinoSettingsTile(
+          icon: CupertinoIcons.music_note,
+          iconColor: CupertinoColors.systemPurple,
+          title: '音源设置',
+          subtitle: AudioSourceService().isConfigured
+              ? AudioSourceService().getSourceDescription()
+              : '未配置（点击配置）',
+          showChevron: true,
+          onTap: widget.onAudioSourceTap,
         ),
         const SizedBox(height: 1),
         CupertinoSettingsTile(

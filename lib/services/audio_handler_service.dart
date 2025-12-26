@@ -235,12 +235,27 @@ class CyreneAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler
     final album = song?.alName ?? track?.album ?? '';
     final artUri = song?.pic ?? track?.picUrl ?? '';
 
+    // 转换封面 URI
+    Uri? parsedArtUri;
+    if (artUri.isNotEmpty) {
+      if (artUri.startsWith('/')) {
+        // 本地文件路径，转换为 file:// URI
+        parsedArtUri = Uri.file(artUri);
+      } else if (artUri.startsWith('http://') || artUri.startsWith('https://') || artUri.startsWith('file://')) {
+        // 已经是完整的 URI
+        parsedArtUri = Uri.parse(artUri);
+      } else {
+        // 其他情况，尝试直接解析
+        parsedArtUri = Uri.tryParse(artUri);
+      }
+    }
+
     mediaItem.add(MediaItem(
       id: track?.id.toString() ?? '0',
       title: title,
       artist: artist,
       album: album,
-      artUri: artUri.isNotEmpty ? Uri.parse(artUri) : null,
+      artUri: parsedArtUri,
       duration: PlayerService().duration,
     ));
   }

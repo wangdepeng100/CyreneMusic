@@ -38,6 +38,8 @@ class CustomMediaNotificationService : Service() {
         private const val CHANNEL_ID = "cyrene_music_media_custom"
         private const val CHANNEL_NAME = "Cyrene Music 媒体播放"
         private const val ACTION_TOGGLE_LYRIC = "com.cyrene.music.action.TOGGLE_LYRIC"
+        private const val NOTIFICATION_UPDATE_DEBOUNCE_MS = 500L  // 防抖延迟 500ms
+        private const val MIN_UPDATE_INTERVAL_MS = 300L  // 最小更新间隔 300ms
 
         fun start(context: Context) {
             val intent = Intent(context, CustomMediaNotificationService::class.java)
@@ -59,6 +61,12 @@ class CustomMediaNotificationService : Service() {
     private var currentMetadata: MediaMetadataCompat? = null
     private var currentState: PlaybackStateCompat? = null
 
+    // 防抖机制：避免频繁更新通知导致系统卡顿
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingNotificationUpdate: Runnable? = null
+    private var lastNotificationUpdateTime = 0L
+    private var lastTitle: String? = null
+    private var lastIsPlaying: Boolean? = null
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate")
@@ -86,13 +94,17 @@ class CustomMediaNotificationService : Service() {
 
         // 如果已经有 controller 且有状态，确保前台通知存在
         mediaController?.let {
-            updateNotification(it.metadata, it.playbackState)
+            scheduleNotificationUpdate()
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy")
+        // 清理待处理的通知更新
+        pendingNotificationUpdate?.let { handler.removeCallbacks(it) }
+        pendingNotificationUpdate = null
+        
         mediaController?.unregisterCallback(controllerCallback)
         mediaBrowser?.disconnect()
         mediaBrowser = null
@@ -114,7 +126,9 @@ class CustomMediaNotificationService : Service() {
                 controller.registerCallback(controllerCallback)
 
                 // 初始化时立即更新一次通知
-                updateNotification(controller.metadata, controller.playbackState)
+                currentMetadata = controller.metadata
+                currentState = controller.playbackState
+                scheduleNotificationUpdate()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create MediaController: ${e.message}", e)
             }
@@ -131,16 +145,82 @@ class CustomMediaNotificationService : Service() {
 
     private val controllerCallback = object : MediaControllerCompat.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-            Log.d(TAG, "onMetadataChanged: $metadata")
             currentMetadata = metadata
-            updateNotification(metadata, currentState)
+            // 使用防抖机制更新通知
+            scheduleNotificationUpdate()
         }
 
         override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
-            Log.d(TAG, "onPlaybackStateChanged: $state")
             currentState = state
-            updateNotification(currentMetadata, state)
+            // 播放状态变化（播放/暂停切换）需要立即更新
+            val isPlaying = state?.state == PlaybackStateCompat.STATE_PLAYING
+            if (lastIsPlaying != isPlaying) {
+                // 播放状态切换，立即更新
+                performNotificationUpdate()
+            } else {
+                // 其他状态变化，使用防抖
+                scheduleNotificationUpdate()
+            }
         }
+    }
+
+    /**
+     * 调度通知更新（带防抖）
+     */
+    private fun scheduleNotificationUpdate() {
+        // 取消之前的待处理更新
+        pendingNotificationUpdate?.let { handler.removeCallbacks(it) }
+        
+        val now = System.currentTimeMillis()
+        val timeSinceLastUpdate = now - lastNotificationUpdateTime
+        
+        // 如果距离上次更新不到最小间隔，则延迟更新
+        val delay = if (timeSinceLastUpdate < MIN_UPDATE_INTERVAL_MS) {
+            NOTIFICATION_UPDATE_DEBOUNCE_MS
+        } else {
+            100L  // 短延迟，合并快速连续的更新
+        }
+        
+        pendingNotificationUpdate = Runnable {
+            performNotificationUpdate()
+        }
+        handler.postDelayed(pendingNotificationUpdate!!, delay)
+    }
+
+    /**
+     * 执行通知更新
+     */
+    private fun performNotificationUpdate() {
+        pendingNotificationUpdate = null
+        
+        val controller = mediaController ?: return
+        val playbackState = currentState ?: controller.playbackState
+        val mediaMeta = currentMetadata ?: controller.metadata
+
+        if (playbackState == null || mediaMeta == null) {
+            return
+        }
+
+        val description = mediaMeta.description
+        val newTitle = description.title?.toString()
+        val newIsPlaying = playbackState.state == PlaybackStateCompat.STATE_PLAYING
+        
+        // 检查是否真的需要更新（标题或播放状态变化）
+        val needsUpdate = newTitle != lastTitle || newIsPlaying != lastIsPlaying
+        
+        if (!needsUpdate) {
+            // 没有变化，跳过更新
+            return
+        }
+        
+        lastTitle = newTitle
+        lastIsPlaying = newIsPlaying
+        lastNotificationUpdateTime = System.currentTimeMillis()
+        
+        // 只在真正更新时打印日志
+        Log.d(TAG, "Notification updated - playing=$newIsPlaying, title=$newTitle")
+        
+        updateNotificationInternal(mediaMeta, playbackState)
     }
 
     private fun createNotificationChannel() {
@@ -160,28 +240,21 @@ class CustomMediaNotificationService : Service() {
         }
     }
 
-    private fun updateNotification(
-        metadata: MediaMetadataCompat?,
-        state: PlaybackStateCompat?
+    private fun updateNotificationInternal(
+        metadata: MediaMetadataCompat,
+        state: PlaybackStateCompat
     ) {
         val controller = mediaController ?: return
-        val playbackState = state ?: controller.playbackState
-        val mediaMeta = metadata ?: controller.metadata
-
-        if (playbackState == null || mediaMeta == null) {
-            Log.w(TAG, "No playback state or metadata, skipping notification update")
-            return
-        }
-
-        val description: MediaDescriptionCompat = mediaMeta.description
-        val isPlaying = playbackState.state == PlaybackStateCompat.STATE_PLAYING
+        
+        val description: MediaDescriptionCompat = metadata.description
+        val isPlaying = state.state == PlaybackStateCompat.STATE_PLAYING
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(description.title ?: "Cyrene Music")
             .setContentText(description.subtitle ?: description.description)
             .setSubText(description.extras?.getString("album"))
-            .setWhen(playbackState.lastPositionUpdateTime)
+            .setWhen(state.lastPositionUpdateTime)
             .setShowWhen(false)
             .setOngoing(isPlaying)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -198,7 +271,7 @@ class CustomMediaNotificationService : Service() {
         addNotificationActions(builder, isPlaying)
 
         // MediaStyle 绑定 MediaSession，紧凑视图最多支持 3 个按钮
-        // 这里选择显示：播放(暂停)、下一首、词（去掉上一首），保证“词”按钮在紧凑视图中可见
+        // 这里选择显示：播放(暂停)、下一首、词（去掉上一首），保证"词"按钮在紧凑视图中可见
         val style = MediaStyle()
             .setMediaSession(controller.sessionToken)
             .setShowActionsInCompactView(1, 2, 3)
@@ -217,8 +290,6 @@ class CustomMediaNotificationService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-
-        Log.d(TAG, "Notification updated - playing=$isPlaying, title=${description.title}")
     }
 
     private fun addNotificationActions(builder: NotificationCompat.Builder, isPlaying: Boolean) {
@@ -309,8 +380,36 @@ class CustomMediaNotificationService : Service() {
     private fun loadIconFromUri(uri: android.net.Uri?): Bitmap? {
         if (uri == null) return null
         return try {
-            val stream = contentResolver.openInputStream(uri)
-            stream?.use { BitmapFactory.decodeStream(it) }
+            val uriString = uri.toString()
+            
+            // 处理本地文件路径（直接路径或 file:// URI）
+            if (uriString.startsWith("/") || uriString.startsWith("file://")) {
+                val filePath = if (uriString.startsWith("file://")) {
+                    uriString.removePrefix("file://")
+                } else {
+                    uriString
+                }
+                val file = java.io.File(filePath)
+                if (file.exists()) {
+                    Log.d(TAG, "Loading icon from local file: $filePath")
+                    BitmapFactory.decodeFile(filePath)
+                } else {
+                    Log.w(TAG, "Local file not found: $filePath")
+                    null
+                }
+            } else if (uriString.startsWith("content://")) {
+                // 处理 content:// URI
+                Log.d(TAG, "Loading icon from content URI: $uriString")
+                val stream = contentResolver.openInputStream(uri)
+                stream?.use { BitmapFactory.decodeStream(it) }
+            } else if (uriString.startsWith("http://") || uriString.startsWith("https://")) {
+                // 网络图片需要异步加载，这里返回 null，依赖 MediaMetadata 中的 iconBitmap
+                Log.d(TAG, "Network URI detected, skipping: $uriString")
+                null
+            } else {
+                Log.w(TAG, "Unknown URI scheme: $uriString")
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load icon from uri: $uri, ${e.message}")
             null

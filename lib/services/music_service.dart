@@ -6,6 +6,7 @@ import '../models/toplist.dart';
 import '../models/track.dart';
 import '../models/song_detail.dart';
 import 'url_service.dart';
+import 'audio_source_service.dart';
 import 'developer_mode_service.dart';
 import 'audio_quality_service.dart';
 import 'auth_service.dart';
@@ -188,6 +189,8 @@ class MusicService extends ChangeNotifier {
   }
 
   /// 获取歌曲详情
+  /// 
+  /// 如果音源未配置，会抛出 [AudioSourceNotConfiguredException] 异常
   Future<SongDetail?> fetchSongDetail({
     required dynamic songId, // 支持 int 和 String
     AudioQuality quality = AudioQuality.exhigh,
@@ -198,7 +201,42 @@ class MusicService extends ChangeNotifier {
       print('   Song ID 类型: ${songId.runtimeType}');
       DeveloperModeService().addLog('🎵 [MusicService] 获取歌曲详情: $songId (${source.name})');
 
-      final baseUrl = UrlService().baseUrl;
+      // 本地音乐不需要音源配置
+      if (source == MusicSource.local) {
+        DeveloperModeService().addLog('ℹ️ [MusicService] 本地歌曲无需请求');
+        return null;
+      }
+
+      // 检查音源是否已配置
+      final audioSourceService = AudioSourceService();
+      if (!audioSourceService.isConfigured) {
+        print('⚠️ [MusicService] 音源未配置，无法获取歌曲 URL');
+        DeveloperModeService().addLog('⚠️ [MusicService] 音源未配置');
+        throw AudioSourceNotConfiguredException();
+      }
+
+      // 🎵 洛雪音源：使用专门的 API 格式
+      if (audioSourceService.sourceType == AudioSourceType.lxmusic) {
+        return await _fetchSongDetailFromLxMusic(
+          songId: songId,
+          quality: quality,
+          source: source,
+          audioSourceService: audioSourceService,
+        );
+      }
+
+      // 🎵 TuneHub 音源：使用 TuneHub API 格式
+      if (audioSourceService.sourceType == AudioSourceType.tunehub) {
+        return await _fetchSongDetailFromTuneHub(
+          songId: songId,
+          quality: quality,
+          source: source,
+          audioSourceService: audioSourceService,
+        );
+      }
+
+      // OmniParse 格式（原有逻辑）
+      final baseUrl = audioSourceService.baseUrl;
       String url;
       http.Response response;
       
@@ -336,8 +374,8 @@ class MusicService extends ChangeNotifier {
           break;
 
         case MusicSource.local:
-          // 本地不通过网络获取详情，直接返回 null 由 PlayerService 处理
-          DeveloperModeService().addLog('ℹ️ [MusicService] 本地歌曲无需请求');
+          // 本地音乐已在方法开头处理，不会到达这里
+          // 保留 case 以满足 switch 完整性
           return null;
       }
 
@@ -603,10 +641,151 @@ class MusicService extends ChangeNotifier {
         DeveloperModeService().addLog('❌ [Network] HTTP ${response.statusCode}');
         return null;
       }
+    } on AudioSourceNotConfiguredException {
+      // 音源未配置异常需要向上传递，由 PlayerService 处理并显示弹窗
+      rethrow;
     } catch (e) {
       print('❌ [MusicService] 获取歌曲详情异常: $e');
       DeveloperModeService().addLog('❌ [MusicService] 异常: $e');
       return null;
+    }
+  }
+
+  /// 🎵 洛雪音源：获取歌曲详情
+  /// 
+  /// 洛雪音源 API 格式: GET ${baseUrl}/url/${source}/${songId}/${quality}
+  /// 响应格式: { code: 0, url: "音频URL" }
+  Future<SongDetail?> _fetchSongDetailFromLxMusic({
+    required dynamic songId,
+    required AudioQuality quality,
+    required MusicSource source,
+    required AudioSourceService audioSourceService,
+  }) async {
+    print('🎵 [MusicService] 使用洛雪音源获取歌曲: $songId');
+    DeveloperModeService().addLog('🎵 [MusicService] 使用洛雪音源');
+
+    // 检查来源是否被洛雪音源支持
+    if (!audioSourceService.isLxSourceSupported(source)) {
+      print('⚠️ [MusicService] 洛雪音源不支持 ${source.name}');
+      DeveloperModeService().addLog('⚠️ [MusicService] 洛雪音源不支持 ${source.name}');
+      throw UnsupportedError('洛雪音源不支持 ${source.name}，请切换到 OmniParse 音源');
+    }
+
+    // 获取正确的 songId
+    // 不同平台的 ID 字段不同：
+    // - 网易云：id (int)
+    // - QQ音乐：songmid (String)  
+    // - 酷狗：hash (String)
+    // - 酷我：rid/mid (int)
+    final String lxSongId = _extractLxSongId(songId, source);
+    
+    try {
+      // 构建洛雪音源请求 URL
+      final url = audioSourceService.buildLxMusicUrl(source, lxSongId, quality);
+      final headers = audioSourceService.getLxRequestHeaders();
+
+      print('🌐 [MusicService] 洛雪音源请求: GET $url');
+      DeveloperModeService().addLog('🌐 [Network] GET $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: headers,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          DeveloperModeService().addLog('⏱️ [Network] 请求超时 (15s)');
+          throw Exception('请求超时');
+        },
+      );
+
+      print('🎵 [MusicService] 洛雪音源响应状态码: ${response.statusCode}');
+      DeveloperModeService().addLog('📥 [Network] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final responseBody = utf8.decode(response.bodyBytes);
+        final truncatedBody = responseBody.length > 200 
+            ? '${responseBody.substring(0, 200)}...' 
+            : responseBody;
+        DeveloperModeService().addLog('📄 [Network] 响应体: $truncatedBody');
+
+        final data = json.decode(responseBody) as Map<String, dynamic>;
+        final code = data['code'];
+
+        // 洛雪音源响应码处理
+        if (code == 0) {
+          final audioUrl = data['url'] as String?;
+          if (audioUrl == null || audioUrl.isEmpty) {
+            print('❌ [MusicService] 洛雪音源返回空 URL');
+            DeveloperModeService().addLog('❌ [MusicService] 返回空 URL');
+            return null;
+          }
+
+          print('✅ [MusicService] 洛雪音源获取成功');
+          print('   🔗 URL: ${audioUrl.length > 50 ? "${audioUrl.substring(0, 50)}..." : audioUrl}');
+          DeveloperModeService().addLog('✅ [MusicService] 获取成功');
+
+          // 洛雪音源只返回 URL，创建一个简化的 SongDetail
+          // 注意：歌曲元数据（名称、艺术家、封面等）需要从其他地方获取
+          return SongDetail(
+            id: songId,
+            name: '', // 需要从 Track 信息获取
+            pic: '',  // 需要从 Track 信息获取
+            arName: '', // 需要从 Track 信息获取
+            alName: '', // 需要从 Track 信息获取
+            level: audioSourceService.getLxQuality(quality),
+            size: '0',
+            url: audioUrl,
+            lyric: '', // 洛雪音源不提供歌词，需要从其他来源获取
+            tlyric: '',
+            source: source,
+          );
+        } else {
+          // 处理洛雪音源错误码
+          final errorMsg = _getLxErrorMessage(code, data['msg']);
+          print('❌ [MusicService] 洛雪音源错误: $errorMsg');
+          DeveloperModeService().addLog('❌ [MusicService] 错误: $errorMsg');
+          throw Exception(errorMsg);
+        }
+      } else {
+        print('❌ [MusicService] 洛雪音源请求失败: HTTP ${response.statusCode}');
+        DeveloperModeService().addLog('❌ [Network] HTTP ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      if (e is UnsupportedError) rethrow;
+      print('❌ [MusicService] 洛雪音源异常: $e');
+      DeveloperModeService().addLog('❌ [MusicService] 异常: $e');
+      return null;
+    }
+  }
+
+  /// 从 songId 中提取洛雪音源所需的 ID
+  String _extractLxSongId(dynamic songId, MusicSource source) {
+    final idStr = songId.toString();
+    
+    // 酷狗音乐可能使用 "hash:album_audio_id" 格式，提取 hash
+    if (source == MusicSource.kugou && idStr.contains(':')) {
+      return idStr.split(':')[0].toUpperCase();
+    }
+    
+    return idStr;
+  }
+
+  /// 获取洛雪音源错误消息
+  String _getLxErrorMessage(dynamic code, String? serverMsg) {
+    switch (code) {
+      case 1:
+        return 'IP 被封禁，请稍后重试';
+      case 2:
+        return '获取音乐链接失败';
+      case 4:
+        return '音源服务器内部错误';
+      case 5:
+        return '请求过于频繁，请稍后重试';
+      case 6:
+        return '参数错误';
+      default:
+        return serverMsg ?? '未知错误 (code: $code)';
     }
   }
 
@@ -619,5 +798,211 @@ class MusicService extends ChangeNotifier {
     print('🗑️ [MusicService] 已清除数据和缓存');
     notifyListeners();
   }
+
+  /// 🎵 TuneHub 音源：获取歌曲详情
+  /// 
+  /// TuneHub API 格式: GET ${baseUrl}/api/?type=info&source=${source}&id=${songId}
+  /// 响应格式: { code: 200, data: { id, name, artist, album, pic, url, lrc } }
+  Future<SongDetail?> _fetchSongDetailFromTuneHub({
+    required dynamic songId,
+    required AudioQuality quality,
+    required MusicSource source,
+    required AudioSourceService audioSourceService,
+  }) async {
+    print('🎵 [MusicService] 使用 TuneHub 音源获取歌曲: $songId');
+    DeveloperModeService().addLog('🎵 [MusicService] 使用 TuneHub 音源');
+
+    // 检查来源是否被 TuneHub 音源支持
+    if (!audioSourceService.isTuneHubSourceSupported(source)) {
+      print('⚠️ [MusicService] TuneHub 音源不支持 ${source.name}');
+      DeveloperModeService().addLog('⚠️ [MusicService] TuneHub 音源不支持 ${source.name}');
+      throw UnsupportedError('TuneHub 音源不支持 ${source.name}，请切换到其他音源');
+    }
+
+    try {
+      // 构建 TuneHub 音源请求 URL（使用 type=info 获取完整信息）
+      final infoUrl = audioSourceService.buildTuneHubInfoUrl(source, songId);
+
+      print('🌐 [MusicService] TuneHub 音源请求: GET $infoUrl');
+      DeveloperModeService().addLog('🌐 [Network] GET $infoUrl');
+
+      final response = await http.get(
+        Uri.parse(infoUrl),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          DeveloperModeService().addLog('⏱️ [Network] 请求超时 (15s)');
+          throw Exception('请求超时');
+        },
+      );
+
+      print('🎵 [MusicService] TuneHub 音源响应状态码: ${response.statusCode}');
+      DeveloperModeService().addLog('📥 [Network] 状态码: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final responseBody = utf8.decode(response.bodyBytes);
+        final truncatedBody = responseBody.length > 300 
+            ? '${responseBody.substring(0, 300)}...' 
+            : responseBody;
+        DeveloperModeService().addLog('📄 [Network] 响应体: $truncatedBody');
+
+        final data = json.decode(responseBody) as Map<String, dynamic>;
+        final code = data['code'];
+
+        // TuneHub 响应码处理
+        if (code == 200) {
+          final songData = data['data'] as Map<String, dynamic>?;
+          if (songData == null) {
+            print('❌ [MusicService] TuneHub 音源返回空数据');
+            DeveloperModeService().addLog('❌ [MusicService] 返回空数据');
+            return null;
+          }
+
+          // 获取播放 URL（优先使用 info 接口返回的 url）
+          String audioUrl = songData['url'] as String? ?? '';
+          
+          // TuneHub 的 info 接口返回的 url 可能是重定向 API 链接（包含 type=url）
+          // 需要检查并跟随重定向获取最终的音频文件 URL
+          // 判断条件：URL 为空，或者 URL 包含 'type=url' 或 'type=pic'（API 重定向链接）
+          final bool needsRedirect = audioUrl.isEmpty || 
+              audioUrl.contains('type=url') || 
+              audioUrl.contains('/api/');
+          
+          if (needsRedirect) {
+            // 构建带音质参数的 URL（info 返回的 url 可能没有音质参数）
+            final redirectUrl = audioSourceService.buildTuneHubMusicUrl(source, songId, quality);
+            print('🔗 [MusicService] TuneHub 需要跟随重定向获取音频 URL: $redirectUrl');
+            
+            try {
+              // 使用 http.Client 手动跟随重定向获取最终 URL
+              final client = http.Client();
+              final request = http.Request('GET', Uri.parse(redirectUrl));
+              request.followRedirects = false; // 禁用自动重定向
+              
+              final streamedResponse = await client.send(request).timeout(const Duration(seconds: 10));
+              
+              if (streamedResponse.statusCode == 302 || streamedResponse.statusCode == 301) {
+                // 获取重定向后的 Location 头
+                final location = streamedResponse.headers['location'] ?? '';
+                if (location.isNotEmpty) {
+                  audioUrl = location;
+                  print('✅ [MusicService] TuneHub 重定向成功，最终 URL: ${audioUrl.length > 50 ? "${audioUrl.substring(0, 50)}..." : audioUrl}');
+                } else {
+                  print('❌ [MusicService] TuneHub 重定向但 Location 为空');
+                }
+              } else if (streamedResponse.statusCode == 200) {
+                // 某些情况下可能直接返回音频流，使用原始 URL
+                audioUrl = redirectUrl;
+                print('ℹ️ [MusicService] TuneHub 直接返回音频流，使用原始 URL');
+              } else {
+                print('❌ [MusicService] TuneHub 获取音频 URL 失败: HTTP ${streamedResponse.statusCode}');
+              }
+              
+              client.close();
+            } catch (e) {
+              print('❌ [MusicService] TuneHub 跟随重定向失败: $e');
+              // 重定向失败时不使用 API URL，因为播放器无法处理
+            }
+          }
+
+          // 获取歌词
+          // 注意：TuneHub 的 info 接口返回的 lrc 字段可能是 URL 而不是歌词内容
+          String lyricText = '';
+          final lrcData = songData['lrc'];
+          
+          if (lrcData is String && lrcData.isNotEmpty) {
+            // 检查是否是 URL（包含 http 或 type=lrc）
+            if (lrcData.startsWith('http') || lrcData.contains('type=lrc')) {
+              // lrcData 是 URL，需要请求获取歌词内容
+              print('📝 [MusicService] TuneHub lrc 是 URL，需要请求获取歌词: $lrcData');
+              try {
+                final lrcResponse = await http.get(
+                  Uri.parse(lrcData),
+                ).timeout(const Duration(seconds: 10));
+                
+                if (lrcResponse.statusCode == 200) {
+                  lyricText = utf8.decode(lrcResponse.bodyBytes);
+                  print('✅ [MusicService] TuneHub 歌词获取成功: ${lyricText.length} 字符');
+                } else {
+                  print('⚠️ [MusicService] TuneHub 歌词请求失败: HTTP ${lrcResponse.statusCode}');
+                }
+              } catch (e) {
+                print('⚠️ [MusicService] TuneHub 歌词请求异常: $e');
+              }
+            } else {
+              // lrcData 是歌词内容本身
+              lyricText = lrcData;
+              print('📝 [MusicService] TuneHub 歌词来自 info 响应: ${lyricText.length} 字符');
+            }
+          } else {
+            // lrcData 为空，尝试单独获取歌词
+            try {
+              final lrcUrl = audioSourceService.buildTuneHubLyricUrl(source, songId);
+              print('📝 [MusicService] 获取 TuneHub 歌词: $lrcUrl');
+              final lrcResponse = await http.get(
+                Uri.parse(lrcUrl),
+              ).timeout(const Duration(seconds: 10));
+              
+              if (lrcResponse.statusCode == 200) {
+                lyricText = utf8.decode(lrcResponse.bodyBytes);
+                print('✅ [MusicService] TuneHub 歌词获取成功: ${lyricText.length} 字符');
+              }
+            } catch (e) {
+              print('⚠️ [MusicService] TuneHub 歌词获取失败: $e');
+            }
+          }
+
+          print('✅ [MusicService] TuneHub 音源获取成功');
+          print('   🎵 歌曲: ${songData['name']}');
+          print('   🎤 艺术家: ${songData['artist']}');
+          print('   🔗 URL: ${audioUrl.length > 50 ? "${audioUrl.substring(0, 50)}..." : audioUrl}');
+          DeveloperModeService().addLog('✅ [MusicService] TuneHub 获取成功');
+
+          return SongDetail(
+            id: songId,
+            name: songData['name'] as String? ?? '',
+            pic: songData['pic'] as String? ?? '',
+            arName: songData['artist'] as String? ?? '',
+            alName: songData['album'] as String? ?? '',
+            level: audioSourceService.getTuneHubQuality(quality),
+            size: '0',
+            url: audioUrl,
+            lyric: lyricText,
+            tlyric: '', // TuneHub 不提供翻译歌词
+            source: source,
+          );
+        } else {
+          // 处理 TuneHub 音源错误码
+          final errorMsg = data['message'] as String? ?? '未知错误 (code: $code)';
+          print('❌ [MusicService] TuneHub 音源错误: $errorMsg');
+          DeveloperModeService().addLog('❌ [MusicService] 错误: $errorMsg');
+          throw Exception(errorMsg);
+        }
+      } else {
+        print('❌ [MusicService] TuneHub 音源请求失败: HTTP ${response.statusCode}');
+        DeveloperModeService().addLog('❌ [Network] HTTP ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      if (e is UnsupportedError) rethrow;
+      print('❌ [MusicService] TuneHub 音源异常: $e');
+      DeveloperModeService().addLog('❌ [MusicService] 异常: $e');
+      return null;
+    }
+  }
 }
 
+/// 音源未配置异常
+/// 
+/// 当用户尝试播放歌曲但尚未配置音源时抛出此异常
+class AudioSourceNotConfiguredException implements Exception {
+  final String message;
+  
+  AudioSourceNotConfiguredException([this.message = '音源未配置，请在设置中配置音源']);
+  
+  @override
+  String toString() => 'AudioSourceNotConfiguredException: $message';
+}
