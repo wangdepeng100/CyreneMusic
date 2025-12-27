@@ -93,9 +93,9 @@ class _MobilePlayerFluidCloudLyricState extends State<MobilePlayerFluidCloudLyri
       curve: Curves.easeInOutSine, // 更柔和的正弦曲线
     ));
     
-    // QQ弹弹效果动画
+    // QQ弹弹效果动画 - Apple Music 风格正弦曲线
     _bounceAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
     
@@ -104,7 +104,7 @@ class _MobilePlayerFluidCloudLyricState extends State<MobilePlayerFluidCloudLyri
       end: 1.0,
     ).animate(CurvedAnimation(
       parent: _bounceAnimationController,
-      curve: Curves.elasticOut, // 弹性曲线
+      curve: const _MobileSineOutCurve(), // 正弦缓出曲线
     ));
   }
 
@@ -250,14 +250,14 @@ class _MobilePlayerFluidCloudLyricState extends State<MobilePlayerFluidCloudLyri
                  final targetOffset = widget.currentLyricIndex * itemHeight;
                  if ((_scrollController.offset - targetOffset).abs() > viewportHeight * 2) {
                     _scrollController.jumpTo(targetOffset);
-                 } else {
-                    // 使用弹性曲线，让滚动更丝滑
+                  } else {
+                    // 使用正弦缓出曲线 - Apple Music 风格流畅滚动
                     _scrollController.animateTo(
                       targetOffset,
-                      duration: const Duration(milliseconds: 800), // 增加动画时间
-                      curve: Curves.easeOutCubic, // 使用平滑的缓出曲线
+                      duration: const Duration(milliseconds: 550),
+                      curve: const _MobileSineOutCurve(),
                     );
-                 }
+                  }
                }
             });
           }
@@ -976,3 +976,25 @@ class _MobileWordClipper extends CustomClipper<Rect> {
   }
 }
 
+/// 正弦缓出曲线 - Apple Music 风格
+/// 快速启动，平滑结束，产生自然流畅的动画效果
+class _MobileSineOutCurve extends Curve {
+  const _MobileSineOutCurve();
+
+  @override
+  double transformInternal(double t) {
+    // sin(t * π/2): 从0平滑过渡到1
+    return math.sin(t * math.pi / 2);
+  }
+}
+
+/// 正弦缓入缓出曲线 - 两端平滑过渡
+class _MobileSineInOutCurve extends Curve {
+  const _MobileSineInOutCurve();
+
+  @override
+  double transformInternal(double t) {
+    // 经典 ease-in-out-sine 公式
+    return -(math.cos(math.pi * t) - 1) / 2;
+  }
+}

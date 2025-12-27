@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -105,9 +106,9 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
       curve: Curves.easeInOut,
     );
     
-    // 弹性间距动画控制器
+    // 弹性间距动画控制器 - Apple Music 风格正弦曲线
     _spacingController = AnimationController(
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
   }
@@ -134,11 +135,11 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     final effectiveItemHeight = hasTranslation ? _itemHeight * 1.3 : _itemHeight;
     final targetOffset = index * effectiveItemHeight;
     
-    // 使用弹性曲线滚动
+    // 使用正弦缓出曲线滚动 - Apple Music 风格
     _scrollController.animateTo(
       targetOffset,
-      duration: const Duration(milliseconds: 700),
-      curve: const _ElasticOutCurve(),
+      duration: const Duration(milliseconds: 550),
+      curve: const _SineOutCurve(),
     );
   }
   
@@ -365,7 +366,7 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     );
   }
 
-  /// 获取弹性偏移量 
+  /// 获取弹性偏移量 - Apple Music 风格正弦波浪
   double _getElasticOffset(int index) {
     if (_isUserScrolling) return 0.0;
     
@@ -375,19 +376,19 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     // 只对当前行附近的几行应用弹性效果
     if (diff.abs() > 5) return 0.0;
     
-    // 计算延迟：距离越远延迟越大
-    // 模拟波浪效果
-    final delay = (diff.abs() * 0.08).clamp(0.0, 0.4);
+    // 使用正弦函数计算波浪式延迟 - 更自然的衰减
+    // sin(x * π/10) 产生平滑的延迟递增
+    final delay = sin(diff.abs() * pi / 10).clamp(0.0, 0.35);
     
     // 调整动画进度，考虑延迟
     final adjustedProgress = ((_spacingController.value - delay) / (1.0 - delay)).clamp(0.0, 1.0);
     
-    // 弹性曲线：先过冲再回弹
-    final elasticValue = const _ElasticOutCurve().transform(adjustedProgress);
+    // 使用正弦缓入缓出曲线 - 平滑自然的过渡
+    final sineValue = const _SineInOutCurve().transform(adjustedProgress);
     
-    // 间距变化量：模拟滚动时的间距拉伸
-    // 初始时刻(progress=0)间距最大，然后弹回正常
-    final spacingChange = 24.0 * (1.0 - elasticValue);
+    // 间距变化量：更含蓄的弹性效果
+    // 初始时刻(progress=0)间距最大，然后平滑回归正常
+    final spacingChange = 16.0 * (1.0 - sineValue);
     
     // diff > 0 (下方): 向下偏移 (+)
     // diff < 0 (上方): 向上偏移 (-)
@@ -417,10 +418,10 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     double translationOffset = 0.0;
     if (isActive && !_isUserScrolling) {
       final progress = _spacingController.value;
-      // 弹性曲线
-      final elasticValue = const _ElasticOutCurve().transform(progress);
-      // 间距变化量：初始间距较大，然后弹回
-      translationOffset = 4.0 * (1.0 - elasticValue);
+      // 正弦曲线 - 平滑的译文偏移
+      final sineValue = const _SineInOutCurve().transform(progress);
+      // 间距变化量：初始间距较大，然后平滑回归
+      translationOffset = 3.0 * (1.0 - sineValue);
     }
     
     final bottomPadding = isActive ? 16.0 : 8.0;
@@ -654,17 +655,30 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
   }
 }
 
-/// 弹性曲线
-/// 这是一个过冲曲线，值会超过 1.0 然后回弹
-class _ElasticOutCurve extends Curve {
-  const _ElasticOutCurve();
+/// 正弦缓出曲线 - Apple Music 风格
+/// 快速启动，平滑结束，产生自然流畅的动画效果
+class _SineOutCurve extends Curve {
+  const _SineOutCurve();
 
   @override
   double transformInternal(double t) {
-    // 使用简化的弹性公式
-    final t2 = t - 1.0;
-    // 过冲系数 1.56 产生弹性效果
-    return 1.0 + t2 * t2 * ((1.56 + 1) * t2 + 1.56);
+    // sin(t * π/2): 从0平滑过渡到1
+    // t=0 -> sin(0) = 0
+    // t=1 -> sin(π/2) = 1
+    return sin(t * pi / 2);
+  }
+}
+
+/// 正弦缓入缓出曲线 - 两端平滑过渡
+/// 用于弹性偏移动画，产生呼吸般的节奏感
+class _SineInOutCurve extends Curve {
+  const _SineInOutCurve();
+
+  @override
+  double transformInternal(double t) {
+    // 经典 ease-in-out-sine 公式
+    // 两端变化慢，中间变化快
+    return -(cos(pi * t) - 1) / 2;
   }
 }
 
