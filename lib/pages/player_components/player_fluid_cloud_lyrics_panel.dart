@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../../services/player_service.dart';
 import '../../services/lyric_font_service.dart';
+import '../../services/lyric_style_service.dart';
 import '../../models/lyric_line.dart';
 
 
@@ -12,12 +13,14 @@ class PlayerFluidCloudLyricsPanel extends StatefulWidget {
   final List<LyricLine> lyrics;
   final int currentLyricIndex;
   final bool showTranslation;
+  final int visibleLineCount;
 
   const PlayerFluidCloudLyricsPanel({
     super.key,
     required this.lyrics,
     required this.currentLyricIndex,
     required this.showTranslation,
+    this.visibleLineCount = 7,
   });
 
   @override
@@ -30,6 +33,10 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
   // ===== 滚动控制 =====
   final ScrollController _scrollController = ScrollController();
   int? _selectedLyricIndex;
+  // 点击反馈状态
+  int? _tappedLyricIndex;
+  int _lastTapId = 0; // 用于处理点击操作的异步防抖和取消
+  
   bool _isUserScrolling = false;
   Timer? _scrollResetTimer;
   
@@ -56,16 +63,29 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     _previousIndex = widget.currentLyricIndex;
     // 监听字体变化，实时刷新
     LyricFontService().addListener(_onFontChanged);
+    // 监听样式变化（对齐方式）
+    LyricStyleService().addListener(_onStyleChanged);
   }
 
   @override
   void dispose() {
+    LyricStyleService().removeListener(_onStyleChanged);
     LyricFontService().removeListener(_onFontChanged);
     _scrollResetTimer?.cancel();
     _timeCapsuleController.dispose();
     _spacingController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+  
+  void _onStyleChanged() {
+    if (mounted) setState(() {});
+    // 样式改变可能需要重新滚动到正确位置
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _scrollToIndex(widget.currentLyricIndex);
+      }
+    });
   }
   
   /// 字体变化回调
@@ -135,11 +155,23 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
 
   /// 激活手动滚动模式
   void _activateManualScroll() {
+    // 如果用户开始手动滚动，取消任何正在进行的点击跳转序列
+    _lastTapId++; 
+    
     if (!_isUserScrolling) {
       setState(() {
         _isUserScrolling = true;
+        // 清除可能存在的点击胶囊
+        _tappedLyricIndex = null;
       });
       _timeCapsuleController.forward();
+    } else {
+      // 即使已经在滚动中，也要确保胶囊被清除（防止边缘情况）
+      if (_tappedLyricIndex != null) {
+        setState(() {
+           _tappedLyricIndex = null;
+        });
+      }
     }
     _resetScrollTimer();
   }
@@ -158,6 +190,39 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
         _scrollToIndex(widget.currentLyricIndex);
       }
     });
+  }
+
+  /// 处理歌词点击
+  Future<void> _handleLyricTap(int index, Duration startTime) async {
+    final currentBitmap = ++_lastTapId;
+
+    // 1. 显示点击胶囊反馈（不设置 _isUserScrolling，避免影响当前播放行的填充效果）
+    if (mounted) {
+      setState(() {
+        _tappedLyricIndex = index;
+        _selectedLyricIndex = null; // 清除选中状态
+      });
+    }
+
+    // 2. 等待水波纹动画完成 (约 350ms)
+    await Future.delayed(const Duration(milliseconds: 350));
+    if (!mounted || _lastTapId != currentBitmap) return;
+
+    // 3. 隐藏胶囊
+    setState(() {
+      _tappedLyricIndex = null;
+    });
+
+    // 4. 执行音乐跳转
+    PlayerService().seek(startTime);
+
+    // 5. 短暂延迟，确保渲染帧更新
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (!mounted || _lastTapId != currentBitmap) return;
+
+    // 6. 触发歌词滚动动画
+    _spacingController.forward(from: 0.0);
+    _scrollToIndex(widget.currentLyricIndex);
   }
 
   /// 跳转到选中的歌词
@@ -186,8 +251,8 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     return LayoutBuilder(
       builder: (context, constraints) {
         _viewportHeight = constraints.maxHeight;
-        // 可视区域显示约 7 行歌词
-        _itemHeight = _viewportHeight / 7;
+        // 可视区域显示约 N 行歌词
+        _itemHeight = _viewportHeight / widget.visibleLineCount;
         
         // 首次布局完成后，立即滚动到当前歌词位置
         if (!_hasInitialScrolled && _viewportHeight > 0) {
@@ -246,7 +311,21 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
     // 如果有译文，增加行高30%
     final hasTranslation = _hasTranslation();
     final effectiveItemHeight = hasTranslation ? _itemHeight * 1.3 : _itemHeight;
-    final topPadding = (_viewportHeight - effectiveItemHeight) / 2;
+    
+    // 计算内边距（决定对齐方式）
+    final alignment = LyricStyleService().currentAlignment;
+    double topPadding, bottomPadding;
+    
+    if (alignment == LyricAlignment.top) {
+      // 顶部对齐：上方留少量空间，下方留足空间以便最后一行能滚上来
+      topPadding = _viewportHeight * 0.15; // 距离顶部 15%
+      bottomPadding = _viewportHeight - effectiveItemHeight - topPadding;
+      if (bottomPadding < 0) bottomPadding = 0;
+    } else {
+      // 居中对齐（默认）：上下对称
+      topPadding = (_viewportHeight - effectiveItemHeight) / 2;
+      bottomPadding = topPadding;
+    }
     
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -274,7 +353,7 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
             controller: _scrollController,
             itemCount: widget.lyrics.length,
             itemExtent: effectiveItemHeight,
-            padding: EdgeInsets.symmetric(vertical: topPadding),
+            padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
             physics: const BouncingScrollPhysics(),
             cacheExtent: _viewportHeight,
             itemBuilder: (context, index) {
@@ -355,9 +434,11 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
         AnimatedDefaultTextStyle(
           duration: const Duration(milliseconds: 300),
           style: TextStyle(
-            color: isSelected 
-                ? Colors.orange 
-                : (isActive ? Colors.white : Colors.white.withOpacity(0.45)),
+            // 只有当前播放行显示白色（填充效果）
+            // 手动滚动选中和点击反馈行保持未填充效果，只通过胶囊背景提供视觉反馈
+            color: isActive
+                ? Colors.white 
+                : Colors.white.withOpacity(0.45),
             fontSize: isActive ? 32 : 26,
             fontWeight: FontWeight.w900,
             fontFamily: LyricFontService().currentFontFamily ?? 'Microsoft YaHei',
@@ -373,7 +454,9 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
               );
               
               // 只有当前行且非手动滚动时才启用卡拉OK效果
-              if (isActive && !_isUserScrolling) {
+              // 点击反馈模式（_tappedLyricIndex != null）不影响当前播放行的填充效果
+              final isRealManualScrolling = _isUserScrolling && _tappedLyricIndex == null;
+              if (isActive && !isRealManualScrolling) {
                 return _KaraokeText(
                   text: lyric.text,
                   lyric: lyric,
@@ -435,32 +518,63 @@ class _PlayerFluidCloudLyricsPanelState extends State<PlayerFluidCloudLyricsPane
       );
     }
 
-    return GestureDetector(
-      onTap: () {
-        // 点击歌词跳转
-        PlayerService().seek(lyric.startTime);
-      },
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Transform.translate(
-          // 弹性 Y 轴偏移
-          offset: Offset(0, elasticOffset),
-          child: SizedBox(
-            height: effectiveItemHeight,
-            child: OverflowBox(
-              alignment: Alignment.centerLeft,
-              maxHeight: effectiveItemHeight * 1.5, // 允许内容超出50%高度
-              child: Padding(
-                padding: EdgeInsets.only(left: 16, right: 16, bottom: bottomPadding),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 400),
-                  opacity: opacity,
-                  // 性能优化：仅在需要模糊时应用 ImageFiltered
-                  child: _OptionalBlur(
-                    blur: blur,
-                    child: lyricContent,
-                  ),
+    // 包装胶囊背景
+    // 用户反馈：只在点击时显示胶囊，而不是一直显示在当前播放行
+    // 同时也将胶囊应用于手动滚动选中时 (参考 Apple Music 滚动聚焦效果)
+    final showCapsule = (index == _tappedLyricIndex) || 
+                       (_isUserScrolling && index == _selectedLyricIndex);
+
+    // 使用 Stack 分离层级：胶囊背景+水波纹在底层，歌词在顶层
+    Widget contentWithCapsule = Stack(
+      children: [
+        // 底层：胶囊背景 + 水波纹效果
+        Positioned.fill(
+          child: Material(
+            type: MaterialType.transparency, // 优化性能，避免不必要的重绘
+            child: InkWell(
+              onTap: () => _handleLyricTap(index, lyric.startTime),
+              borderRadius: BorderRadius.circular(12),
+              splashColor: Colors.white.withOpacity(0.15), // 降低透明度，更柔和
+              highlightColor: Colors.white.withOpacity(0.05),
+              splashFactory: InkRipple.splashFactory, // 使用更流畅的水波纹动画
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                decoration: BoxDecoration(
+                  color: showCapsule ? Colors.white.withOpacity(0.2) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+              ),
+            ),
+          ),
+        ),
+        // 顶层：歌词内容（不响应点击，让事件穿透到底层）
+        IgnorePointer(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: lyricContent,
+          ),
+        ),
+      ],
+    );
+
+    return Transform.translate(
+      // 弹性 Y 轴偏移
+      offset: Offset(0, elasticOffset),
+      child: SizedBox(
+        height: effectiveItemHeight,
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          maxHeight: effectiveItemHeight * 2.0, // 增加允许的高度溢出，防止胶囊背景被裁剪
+          child: Padding(
+            padding: EdgeInsets.only(left: 16, right: 16, bottom: bottomPadding),
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 400),
+              opacity: opacity,
+              // 性能优化：仅在需要模糊时应用 ImageFiltered
+              child: _OptionalBlur(
+                blur: blur,
+                child: contentWithCapsule,
               ),
             ),
           ),

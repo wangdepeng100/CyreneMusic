@@ -10,6 +10,14 @@ enum LyricStyle {
   fluidCloud,
 }
 
+/// 歌词对齐方式
+enum LyricAlignment {
+  /// 居中
+  center,
+  /// 顶部
+  top,
+}
+
 /// 歌词样式服务
 /// 管理歌词样式偏好设置
 class LyricStyleService extends ChangeNotifier {
@@ -18,11 +26,16 @@ class LyricStyleService extends ChangeNotifier {
   LyricStyleService._internal();
 
   static const String _storageKey = 'lyric_style';
+  static const String _alignmentStorageKey = 'lyric_alignment';
   
   LyricStyle _currentStyle = LyricStyle.defaultStyle;
+  LyricAlignment _currentAlignment = LyricAlignment.center;
 
   /// 获取当前歌词样式
   LyricStyle get currentStyle => _currentStyle;
+  
+  /// 获取当前歌词对齐方式
+  LyricAlignment get currentAlignment => _currentAlignment;
 
   /// 初始化服务
   Future<void> initialize() async {
@@ -33,21 +46,28 @@ class LyricStyleService extends ChangeNotifier {
   Future<void> _loadStyle() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedStyleIndex = prefs.getInt(_storageKey);
       
+      // 加载样式
+      final savedStyleIndex = prefs.getInt(_storageKey);
       if (savedStyleIndex != null && savedStyleIndex >= 0 && savedStyleIndex < LyricStyle.values.length) {
-        // 用户已设置过，使用用户设置
         _currentStyle = LyricStyle.values[savedStyleIndex];
       } else {
-        // 用户未设置过，使用平台默认值
-        // 所有平台默认使用流体云样式
         _currentStyle = LyricStyle.fluidCloud;
+      }
+      
+      // 加载对齐方式
+      final savedAlignmentIndex = prefs.getInt(_alignmentStorageKey);
+      if (savedAlignmentIndex != null && savedAlignmentIndex >= 0 && savedAlignmentIndex < LyricAlignment.values.length) {
+        _currentAlignment = LyricAlignment.values[savedAlignmentIndex];
+      } else {
+        _currentAlignment = LyricAlignment.center;
       }
       
       notifyListeners();
     } catch (e) {
-      print('❌ [LyricStyleService] 加载歌词样式失败: $e');
+      print('❌ [LyricStyleService] 加载歌词配置失败: $e');
       _currentStyle = LyricStyle.defaultStyle;
+      _currentAlignment = LyricAlignment.center;
     }
   }
 
@@ -64,6 +84,22 @@ class LyricStyleService extends ChangeNotifier {
       print('✅ [LyricStyleService] 歌词样式已保存: ${_getStyleName(style)}');
     } catch (e) {
       print('❌ [LyricStyleService] 保存歌词样式失败: $e');
+    }
+  }
+
+  /// 设置歌词对齐方式
+  Future<void> setAlignment(LyricAlignment alignment) async {
+    if (_currentAlignment == alignment) return;
+    
+    _currentAlignment = alignment;
+    notifyListeners();
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_alignmentStorageKey, alignment.index);
+      print('✅ [LyricStyleService] 歌词对齐已保存: ${alignment.name}');
+    } catch (e) {
+      print('❌ [LyricStyleService] 保存歌词对齐失败: $e');
     }
   }
 

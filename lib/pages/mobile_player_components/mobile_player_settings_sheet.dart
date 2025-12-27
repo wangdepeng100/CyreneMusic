@@ -6,6 +6,7 @@ import '../../services/lyric_style_service.dart';
 import '../../services/player_background_service.dart';
 import '../../services/sleep_timer_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/auto_collapse_service.dart';
 import '../../models/track.dart';
 
 /// 移动端播放器设置底部弹出板
@@ -104,6 +105,11 @@ class _MobilePlayerSettingsSheetState extends State<MobilePlayerSettingsSheet> {
                     // 播放器背景
                     _buildBackgroundSection(),
                     
+                    const SizedBox(height: 20),
+
+                    // 自动折叠控制栏
+                    _buildAutoCollapseSection(),
+
                     const SizedBox(height: 20),
                     
                     // 睡眠定时器
@@ -256,6 +262,36 @@ class _MobilePlayerSettingsSheetState extends State<MobilePlayerSettingsSheet> {
                   ),
                 ],
               ),
+              
+              const SizedBox(height: 16),
+              
+              // 歌词对齐设置
+              const Text(
+                '歌词对齐',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _buildAlignmentChip(
+                    icon: Icons.format_align_center_rounded,
+                    label: '居中显示',
+                    isSelected: styleService.currentAlignment == LyricAlignment.center,
+                    onTap: () => styleService.setAlignment(LyricAlignment.center),
+                  ),
+                  const SizedBox(width: 12),
+                  _buildAlignmentChip(
+                    icon: Icons.vertical_align_top_rounded,
+                    label: '顶部显示',
+                    isSelected: styleService.currentAlignment == LyricAlignment.top,
+                    onTap: () => styleService.setAlignment(LyricAlignment.top),
+                  ),
+                ],
+              ),
             ],
           ),
         );
@@ -307,6 +343,50 @@ class _MobilePlayerSettingsSheetState extends State<MobilePlayerSettingsSheet> {
                 style: TextStyle(
                   color: isSelected ? Colors.white54 : Colors.white38,
                   fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建对齐方式芯片
+  Widget _buildAlignmentChip({
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? Colors.white.withOpacity(0.3) : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? Colors.white : Colors.white60,
+                size: 18,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white60,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
@@ -833,6 +913,50 @@ class _MobilePlayerSettingsSheetState extends State<MobilePlayerSettingsSheet> {
                     );
                   }).toList(),
                 ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  /// 构建自动折叠设置区域
+  Widget _buildAutoCollapseSection() {
+    return AnimatedBuilder(
+      animation: AutoCollapseService(),
+      builder: (context, _) {
+        final service = AutoCollapseService();
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '交互体验',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                value: service.isAutoCollapseEnabled,
+                onChanged: (value) => service.setAutoCollapseEnabled(value),
+                title: const Text(
+                  '沉浸模式 (自动折叠控制栏)',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  '播放时自动隐藏控制按钮，点击屏幕呼出',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                activeColor: Colors.white,
+                activeTrackColor: Colors.white24,
+                inactiveThumbColor: Colors.white54,
+                inactiveTrackColor: Colors.white10,
+                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ],
           ),
         );
