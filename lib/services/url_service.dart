@@ -14,7 +14,7 @@ class UrlService extends ChangeNotifier {
   UrlService._internal();
 
   /// 官方源地址
-  static const String officialBaseUrl = 'http://114.66.31.209:4055';
+  static const String officialBaseUrl = 'https://server.cyrene.cyou:4449';
 
   /// 当前源类型
   BackendSourceType _sourceType = BackendSourceType.official;
@@ -198,6 +198,10 @@ class UrlService extends ChangeNotifier {
   
   // Weather API
   String get weatherUrl => '$baseUrl/weather';
+
+  // IP Location API
+  String get ipLocationUrl => '$baseUrl/ip-location';
+  String get ipLocationQueryUrl => '$baseUrl/ip-location/query';
 
   // Pay API (backend proxy)
   String get payCreateUrl => '$baseUrl/pay/create';

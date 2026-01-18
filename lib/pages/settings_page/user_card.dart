@@ -1256,21 +1256,58 @@ class _UserCardState extends State<UserCard> {
                         height: 60,
                         color: colorScheme.primaryContainer,
                         child: avatarUrl != null
-                            ? Image.network(
-                                avatarUrl,
-                                width: 60,
-                                height: 60,
-                                fit: BoxFit.cover,
-                                headers: const {
-                                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                                  'Referer': 'https://linux.do/',
-                                },
-                                errorBuilder: (context, error, stackTrace) => Icon(
-                                  Icons.person,
-                                  size: 32,
-                                  color: colorScheme.onPrimaryContainer,
-                                ),
-                              )
+                            ? (avatarUrl.contains('linux.do')
+                                // Linux DO 头像需要使用 AvatarFetchService 加载以绕过 Cloudflare
+                                ? FutureBuilder<Uint8List?>(
+                                    future: AvatarFetchService().fetchAvatar(
+                                      avatarUrl,
+                                      cacheKey: 'linuxdo_${user.id}',
+                                    ),
+                                    builder: (context, snapshot) {
+                                      if (snapshot.connectionState == ConnectionState.waiting) {
+                                        return Center(
+                                          child: SizedBox(
+                                            width: 24,
+                                            height: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: colorScheme.onPrimaryContainer,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      if (snapshot.hasData && snapshot.data != null) {
+                                        return Image.memory(
+                                          snapshot.data!,
+                                          width: 60,
+                                          height: 60,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) => Icon(
+                                            Icons.person,
+                                            size: 32,
+                                            color: colorScheme.onPrimaryContainer,
+                                          ),
+                                        );
+                                      }
+                                      return Icon(
+                                        Icons.person,
+                                        size: 32,
+                                        color: colorScheme.onPrimaryContainer,
+                                      );
+                                    },
+                                  )
+                                // 其他头像（如 QQ 头像）可以直接使用 Image.network
+                                : Image.network(
+                                    avatarUrl,
+                                    width: 60,
+                                    height: 60,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Icon(
+                                      Icons.person,
+                                      size: 32,
+                                      color: colorScheme.onPrimaryContainer,
+                                    ),
+                                  ))
                             : Icon(
                                 Icons.person,
                                 size: 32,

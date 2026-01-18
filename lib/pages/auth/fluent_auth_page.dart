@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import '../../services/auth_service.dart';
 import 'qr_login_dialog.dart';
+import 'linuxdo_webview_login_page.dart';
 
 /// 桌面端 Fluent UI 风格认证页面
 /// 
@@ -352,16 +353,24 @@ class _FluentLoginViewState extends State<_FluentLoginView> {
   Future<void> _handleLinuxDoLogin() async {
     setState(() {
       _isLinuxDoLoading = true;
-      _linuxDoLoadingText = '正在打开浏览器...';
+      _linuxDoLoadingText = '正在打开授权页面...';
     });
     
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted && _isLinuxDoLoading) {
-        setState(() => _linuxDoLoadingText = '等待浏览器授权...');
-      }
-    });
+    // 使用 WebView 方式进行登录
+    final code = await showLinuxDoWebViewLogin(context);
     
-    final result = await AuthService().loginWithLinuxDo();
+    if (!mounted) return;
+    
+    if (code == null) {
+      // 用户取消或获取授权码失败
+      setState(() => _isLinuxDoLoading = false);
+      return;
+    }
+    
+    // 获取到授权码，进行登录
+    setState(() => _linuxDoLoadingText = '正在验证授权...');
+    
+    final result = await AuthService().loginWithLinuxDoCode(code);
     
     if (!mounted) return;
     

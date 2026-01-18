@@ -2,15 +2,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:window_manager/window_manager.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 import '../services/audio_source_service.dart';
 import '../services/auth_service.dart';
 import '../services/persistent_storage_service.dart';
+import '../utils/theme_manager.dart';
 import 'settings_page/audio_source_settings_page.dart';
 import 'auth/fluent_auth_page.dart';
 
 /// 桌面端初始配置引导页
 /// 
-/// 多步引导流程：配置音源 → 登录 → 确认协议 → 进入主应用
+/// 多步引导流程：主题设置 → 配置音源 → 登录 → 确认协议 → 进入主应用
 class DesktopSetupPage extends StatefulWidget {
   const DesktopSetupPage({super.key});
 
@@ -20,10 +23,11 @@ class DesktopSetupPage extends StatefulWidget {
 
 class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener {
   /// 引导步骤
-  /// 0 = 欢迎/音源配置入口
-  /// 1 = 音源配置中
-  /// 2 = 登录中
-  /// 3 = 协议确认中
+  /// 0 = 欢迎/引导入口
+  /// 1 = 主题设置中
+  /// 2 = 音源配置中
+  /// 3 = 登录中
+  /// 4 = 协议确认中
   int _currentStep = 0;
   
   /// 窗口状态
@@ -79,12 +83,12 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
     if (mounted) {
       setState(() {
         // 如果音源已配置且在配置步骤，自动返回欢迎页
-        if (_currentStep == 1 && AudioSourceService().isConfigured) {
+        if (_currentStep == 2 && AudioSourceService().isConfigured) {
           _currentStep = 0;
         }
         // 如果登录已完成且在登录步骤，自动进入协议页
-        if (_currentStep == 2 && AuthService().isLoggedIn) {
-          _currentStep = 3;
+        if (_currentStep == 3 && AuthService().isLoggedIn) {
+          _currentStep = 4;
         }
       });
     }
@@ -190,31 +194,43 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
   Widget build(BuildContext context) {
     final theme = fluent.FluentTheme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    
+    // 判断是否使用透明背景（窗口效果启用时）
+    final useWindowEffect = Platform.isWindows && ThemeManager().windowEffect != WindowEffect.disabled;
+    final backgroundColor = useWindowEffect 
+        ? Colors.transparent 
+        : (isDark ? const Color(0xFF1F1F1F) : const Color(0xFFF3F3F3));
 
     // 构建页面内容
     Widget pageContent;
     
     if (_currentStep == 1) {
-      pageContent = _buildAudioSourcePage(context, theme, isDark);
+      pageContent = _buildThemeSettingsPage(context, theme, isDark);
     } else if (_currentStep == 2) {
-      pageContent = _buildLoginPage(context, theme, isDark);
+      pageContent = _buildAudioSourcePage(context, theme, isDark);
     } else if (_currentStep == 3) {
+      pageContent = _buildLoginPage(context, theme, isDark);
+    } else if (_currentStep == 4) {
       pageContent = _buildAgreementPage(context, theme, isDark);
     } else {
       pageContent = _buildWelcomePage(context, theme, isDark);
     }
 
     // 将标题栏和页面内容组合
-    return Column(
-      children: [
-        _buildTitleBar(context, theme),
-        Expanded(child: pageContent),
-      ],
+    return Container(
+      color: backgroundColor,
+      child: Column(
+        children: [
+          _buildTitleBar(context, theme),
+          Expanded(child: pageContent),
+        ],
+      ),
     );
   }
 
   /// 构建欢迎引导页面
   Widget _buildWelcomePage(BuildContext context, fluent.FluentThemeData theme, bool isDark) {
+    final themeConfigured = PersistentStorageService().getBool('theme_configured') ?? false;
     final audioConfigured = AudioSourceService().isConfigured;
     final isLoggedIn = AuthService().isLoggedIn;
 
@@ -225,24 +241,30 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
     VoidCallback onButtonPressed;
     bool showSkip = true;
 
-    if (!audioConfigured) {
-      // 第一步：配置音源
+    if (!themeConfigured) {
+      // 第一步：主题设置
       title = '欢迎使用 Cyrene Music';
-      subtitle = '开始前，请先配置音源以解锁全部功能';
-      buttonText = '配置音源';
+      subtitle = '首先，让我们设置您喜欢的外观风格';
+      buttonText = '主题设置';
       onButtonPressed = () => setState(() => _currentStep = 1);
+    } else if (!audioConfigured) {
+      // 第二步：配置音源
+      title = '主题设置完成 ✓';
+      subtitle = '接下来，配置音源以解锁全部功能';
+      buttonText = '配置音源';
+      onButtonPressed = () => setState(() => _currentStep = 2);
     } else if (!isLoggedIn) {
-      // 第二步：登录
+      // 第三步：登录
       title = '音源配置完成 ✓';
       subtitle = '登录账号以同步您的收藏和播放记录';
       buttonText = '登录 / 注册';
-      onButtonPressed = () => setState(() => _currentStep = 2);
+      onButtonPressed = () => setState(() => _currentStep = 3);
     } else {
       // 全部完成，进入协议页
       title = '准备就绪!';
       subtitle = '开始探索音乐世界吧';
       buttonText = '下一步';
-      onButtonPressed = () => setState(() => _currentStep = 3);
+      onButtonPressed = () => setState(() => _currentStep = 4);
       showSkip = false;
     }
 
@@ -279,7 +301,7 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
               const SizedBox(height: 32),
               
               // 进度指示器
-              _buildStepIndicator(audioConfigured, isLoggedIn, isDark, theme),
+              _buildStepIndicator(themeConfigured, audioConfigured, isLoggedIn, isDark, theme),
               
               const SizedBox(height: 24),
               
@@ -346,21 +368,35 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
   }
 
   /// 构建步骤指示器
-  Widget _buildStepIndicator(bool audioConfigured, bool isLoggedIn, bool isDark, fluent.FluentThemeData theme) {
+  Widget _buildStepIndicator(bool themeConfigured, bool audioConfigured, bool isLoggedIn, bool isDark, fluent.FluentThemeData theme) {
     final accentColor = theme.accentColor;
     
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // 音源配置步骤
+        // 主题设置步骤
         _buildStepDot(
-          isCompleted: audioConfigured,
-          isCurrent: !audioConfigured,
+          isCompleted: themeConfigured,
+          isCurrent: !themeConfigured,
           isDark: isDark,
           currentStepColor: accentColor,
         ),
         Container(
-          width: 32,
+          width: 24,
+          height: 2,
+          color: themeConfigured 
+              ? (isDark ? Colors.white54 : Colors.black38)
+              : (isDark ? Colors.white24 : Colors.black12),
+        ),
+        // 音源配置步骤
+        _buildStepDot(
+          isCompleted: audioConfigured,
+          isCurrent: themeConfigured && !audioConfigured,
+          isDark: isDark,
+          currentStepColor: accentColor,
+        ),
+        Container(
+          width: 24,
           height: 2,
           color: audioConfigured 
               ? (isDark ? Colors.white54 : Colors.black38)
@@ -369,12 +405,12 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
         // 登录步骤
         _buildStepDot(
           isCompleted: isLoggedIn,
-          isCurrent: audioConfigured && !isLoggedIn,
+          isCurrent: themeConfigured && audioConfigured && !isLoggedIn,
           isDark: isDark,
           currentStepColor: accentColor,
         ),
         Container(
-          width: 32,
+          width: 24,
           height: 2,
           color: isLoggedIn 
               ? (isDark ? Colors.white54 : Colors.black38)
@@ -383,7 +419,7 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
         // 协议确认步骤
         _buildStepDot(
           isCompleted: false,
-          isCurrent: audioConfigured && isLoggedIn,
+          isCurrent: themeConfigured && audioConfigured && isLoggedIn,
           isDark: isDark,
           currentStepColor: accentColor,
         ),
@@ -416,6 +452,380 @@ class _DesktopSetupPageState extends State<DesktopSetupPage> with WindowListener
       child: isCompleted
           ? const Icon(fluent.FluentIcons.check_mark, size: 8, color: Colors.white)
           : null,
+    );
+  }
+
+  /// 构建主题设置页面
+  Widget _buildThemeSettingsPage(BuildContext context, fluent.FluentThemeData theme, bool isDark) {
+    return Column(
+      children: [
+        // 页面头部（带返回按钮）
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              fluent.IconButton(
+                icon: const Icon(fluent.FluentIcons.back),
+                onPressed: () => setState(() => _currentStep = 0),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '主题设置',
+                style: theme.typography.subtitle,
+              ),
+            ],
+          ),
+        ),
+        // 主题设置内容
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: fluent.ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  // 主题色设置
+                  _buildThemeColorSection(theme, isDark),
+                  const SizedBox(height: 24),
+                  
+                  // 窗口效果设置
+                  _buildWindowEffectSection(theme, isDark),
+                  const SizedBox(height: 32),
+                  
+                  // 完成按钮
+                  SizedBox(
+                    width: double.infinity,
+                    child: fluent.FilledButton(
+                      onPressed: () async {
+                        // 标记主题配置完成
+                        await PersistentStorageService().setBool('theme_configured', true);
+                        setState(() => _currentStep = 0);
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          '完成设置',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 构建主题色设置区域
+  Widget _buildThemeColorSection(fluent.FluentThemeData theme, bool isDark) {
+    return fluent.Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '主题色',
+            style: theme.typography.bodyStrong,
+          ),
+          const SizedBox(height: 16),
+          
+          // 跟随系统选项
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '跟随系统主题色',
+                  style: theme.typography.body,
+                ),
+              ),
+              fluent.ToggleSwitch(
+                checked: ThemeManager().followSystemColor,
+                onChanged: (value) async {
+                  await ThemeManager().setFollowSystemColor(value, context: context);
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
+          
+          // 自定义主题色
+          if (!ThemeManager().followSystemColor) ...[
+            const SizedBox(height: 16),
+            Text(
+              '选择主题色',
+              style: theme.typography.caption?.copyWith(
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final colorScheme in ThemeColors.presets)
+                  GestureDetector(
+                    onTap: () {
+                      ThemeManager().setSeedColor(colorScheme.color);
+                      setState(() {});
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: colorScheme.color,
+                        shape: BoxShape.circle,
+                        border: ThemeManager().seedColor.value == colorScheme.color.value
+                            ? Border.all(color: Colors.white, width: 3)
+                            : null,
+                        boxShadow: ThemeManager().seedColor.value == colorScheme.color.value
+                            ? [
+                                BoxShadow(
+                                  color: colorScheme.color.withOpacity(0.5),
+                                  blurRadius: 8,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: ThemeManager().seedColor.value == colorScheme.color.value
+                          ? const Icon(fluent.FluentIcons.check_mark, size: 16, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+                // 自定义颜色按钮
+                GestureDetector(
+                  onTap: () => _showCustomColorPickerDialog(theme, isDark),
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isDark ? Colors.white12 : Colors.black12,
+                      border: Border.all(
+                        color: isDark ? Colors.white24 : Colors.black12,
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      fluent.FluentIcons.add,
+                      size: 16,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 构建窗口效果设置区域
+  Widget _buildWindowEffectSection(fluent.FluentThemeData theme, bool isDark) {
+    return fluent.Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '窗口效果',
+            style: theme.typography.bodyStrong,
+          ),
+          const SizedBox(height: 8),
+          
+          // 警告提示
+          fluent.InfoBar(
+            title: const Text('兼容性提示'),
+            content: const Text('Windows 11 以下系统推荐使用"默认"效果，云母或亚克力可能会出现显示异常！'),
+            severity: fluent.InfoBarSeverity.warning,
+            isLong: true,
+          ),
+          const SizedBox(height: 16),
+          
+          // 窗口效果选择
+          _buildWindowEffectOption(
+            theme: theme,
+            isDark: isDark,
+            effect: WindowEffect.disabled,
+            title: '默认',
+            description: '兼容性最佳，适合所有 Windows 版本',
+            icon: fluent.FluentIcons.checkbox_composite,
+          ),
+          const SizedBox(height: 8),
+          _buildWindowEffectOption(
+            theme: theme,
+            isDark: isDark,
+            effect: WindowEffect.mica,
+            title: '云母',
+            description: '现代毛玻璃效果，仅支持 Windows 11',
+            icon: fluent.FluentIcons.blur,
+            enabled: ThemeManager().isMicaSupported,
+          ),
+          const SizedBox(height: 8),
+          _buildWindowEffectOption(
+            theme: theme,
+            isDark: isDark,
+            effect: WindowEffect.acrylic,
+            title: '亚克力',
+            description: '半透明模糊效果，Windows 10 及以上',
+            icon: fluent.FluentIcons.picture_library,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建窗口效果选项
+  Widget _buildWindowEffectOption({
+    required fluent.FluentThemeData theme,
+    required bool isDark,
+    required WindowEffect effect,
+    required String title,
+    required String description,
+    required IconData icon,
+    bool enabled = true,
+  }) {
+    final isSelected = ThemeManager().windowEffect == effect;
+    
+    return fluent.HoverButton(
+      onPressed: enabled
+          ? () async {
+              await ThemeManager().setWindowEffect(effect);
+              setState(() {});
+            }
+          : null,
+      builder: (context, states) {
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? theme.accentColor.withOpacity(0.15)
+                : (states.isHovering && enabled
+                    ? (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03))
+                    : Colors.transparent),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected
+                  ? theme.accentColor
+                  : (isDark ? Colors.white12 : Colors.black12),
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 24,
+                color: enabled
+                    ? (isSelected ? theme.accentColor : (isDark ? Colors.white70 : Colors.black54))
+                    : (isDark ? Colors.white24 : Colors.black26),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: theme.typography.body?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: enabled ? null : (isDark ? Colors.white38 : Colors.black38),
+                          ),
+                        ),
+                        if (!enabled) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isDark ? Colors.white12 : Colors.black12,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              '需要 Win11',
+                              style: TextStyle(fontSize: 10),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: theme.typography.caption?.copyWith(
+                        color: enabled
+                            ? (isDark ? Colors.white54 : Colors.black45)
+                            : (isDark ? Colors.white24 : Colors.black26),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(
+                  fluent.FluentIcons.check_mark,
+                  size: 16,
+                  color: theme.accentColor,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 显示自定义颜色选择器对话框
+  void _showCustomColorPickerDialog(fluent.FluentThemeData theme, bool isDark) {
+    Color tempColor = ThemeManager().seedColor;
+    
+    fluent.showDialog(
+      context: context,
+      builder: (context) => fluent.ContentDialog(
+        title: const Text('自定义主题色'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: 420,
+            maxHeight: 480,
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: SingleChildScrollView(
+              child: ColorPicker(
+                pickerColor: tempColor,
+                onColorChanged: (color) {
+                  tempColor = color;
+                },
+                enableAlpha: false,
+                displayThumbColor: true,
+                pickerAreaHeightPercent: 0.75,
+                portraitOnly: true,
+                labelTypes: const [],
+                hexInputBar: false,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          fluent.Button(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          fluent.FilledButton(
+            onPressed: () {
+              ThemeManager().setSeedColor(tempColor);
+              Navigator.pop(context);
+              setState(() {});
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
     );
   }
 

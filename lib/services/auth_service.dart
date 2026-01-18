@@ -632,6 +632,52 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Linux Do 授权登录 - 使用授权码（适用于 WebView 方式）
+  /// 
+  /// 当通过 WebView 获取到授权码后，调用此方法完成登录
+  Future<Map<String, dynamic>> loginWithLinuxDoCode(String code) async {
+    try {
+      print('🔑 [AuthService] 使用授权码登录 Linux Do...');
+      DeveloperModeService().addLog('🔑 [AuthService] 使用授权码登录...');
+
+      final response = await http.post(
+        Uri.parse('${UrlService().baseUrl}/auth/linuxdo/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'code': code}),
+      );
+
+      print('📥 [AuthService] 后端响应状态: ${response.statusCode}');
+      final data = jsonDecode(response.body);
+      print('🔍 [AuthService] 后端返回数据: ${jsonEncode(data['data'])}');
+      print('🖼️ [AuthService] 头像URL: ${data['data']?['avatarUrl']}');
+
+      if (response.statusCode == 200) {
+        _currentUser = User.fromJson(data['data']);
+        _authToken = data['data']['token'];
+        _isLoggedIn = true;
+
+        await _saveUserToStorage(_currentUser!);
+        if (_authToken != null) {
+          await _saveTokenToStorage(_authToken!);
+        }
+
+        notifyListeners();
+        print('🎉 [AuthService] Linux Do 授权码登录成功: ${_currentUser?.username}');
+        DeveloperModeService().addLog('🎉 [AuthService] Linux Do 授权码登录成功');
+        return {'success': true, 'message': '登录成功'};
+      } else {
+        print('❌ [AuthService] 后端通过授权码登录失败: ${data['message']}');
+        DeveloperModeService().addLog('❌ [AuthService] 授权码登录失败: ${data['message']}');
+        return {'success': false, 'message': data['message'] ?? '验证失败'};
+      }
+    } catch (e) {
+      print('💥 [AuthService] 授权码登录异常: $e');
+      DeveloperModeService().addLog('💥 [AuthService] 授权码登录异常: $e');
+      return {'success': false, 'message': '登录异常: $e'};
+    }
+  }
+
+
   /// 发送重置密码验证码
   Future<Map<String, dynamic>> sendResetCode({
     required String email,

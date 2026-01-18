@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'url_service.dart';
 
 /// IP 归属地信息模型
 class LocationInfo {
@@ -22,6 +23,7 @@ class LocationInfo {
     required this.longitude,
   });
 
+  /// 从后端 API 响应解析
   factory LocationInfo.fromJson(Map<String, dynamic> json) {
     final location = json['location'] as Map<String, dynamic>? ?? {};
     String s(dynamic v) => v == null ? '' : v.toString();
@@ -74,9 +76,6 @@ class LocationService extends ChangeNotifier {
   factory LocationService() => _instance;
   LocationService._internal();
 
-  /// IP 归属地查询 API
-  static const String locationApiUrl = 'https://drive-backend.cyrene.ltd/api/userip';
-
   LocationInfo? _currentLocation;
   bool _isLoading = false;
   String? _errorMessage;
@@ -88,8 +87,9 @@ class LocationService extends ChangeNotifier {
 
   /// 获取当前 IP 归属地
   Future<LocationInfo?> fetchLocation() async {
+    final apiUrl = UrlService().ipLocationUrl;
     print('🌍 [LocationService] 开始获取IP归属地...');
-    print('🌍 [LocationService] API URL: $locationApiUrl');
+    print('🌍 [LocationService] API URL: $apiUrl');
     
     _isLoading = true;
     _errorMessage = null;
@@ -99,7 +99,7 @@ class LocationService extends ChangeNotifier {
       print('🌍 [LocationService] 发送 HTTP GET 请求...');
       
       final response = await http.get(
-        Uri.parse(locationApiUrl),
+        Uri.parse(apiUrl),
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
@@ -117,15 +117,20 @@ class LocationService extends ChangeNotifier {
         final data = jsonDecode(response.body);
         print('🌍 [LocationService] JSON 解析成功: $data');
         
-        _currentLocation = LocationInfo.fromJson(data);
-        print('✅ [LocationService] LocationInfo 创建成功');
-        print('🌍 [LocationService] IP: ${_currentLocation?.ip}');
-        print('🌍 [LocationService] 归属地: ${_currentLocation?.shortDescription}');
-        
-        _isLoading = false;
-        notifyListeners();
-        print('✅ [LocationService] 获取IP归属地完成！');
-        return _currentLocation;
+        if (data['success'] == true) {
+          _currentLocation = LocationInfo.fromJson(data);
+          print('✅ [LocationService] LocationInfo 创建成功');
+          print('🌍 [LocationService] IP: ${_currentLocation?.ip}');
+          print('🌍 [LocationService] 归属地: ${_currentLocation?.shortDescription}');
+          
+          _isLoading = false;
+          notifyListeners();
+          print('✅ [LocationService] 获取IP归属地完成！');
+          return _currentLocation;
+        } else {
+          print('❌ [LocationService] API 返回失败: ${data['message']}');
+          throw Exception(data['message'] ?? '获取失败');
+        }
       } else {
         print('❌ [LocationService] 请求失败 - 状态码: ${response.statusCode}');
         throw Exception('请求失败: ${response.statusCode}');
@@ -148,4 +153,3 @@ class LocationService extends ChangeNotifier {
     notifyListeners();
   }
 }
-

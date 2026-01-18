@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:io';
 import '../../services/auth_overlay_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/theme_manager.dart';
 import 'qr_login_dialog.dart';
+import 'linuxdo_webview_login_page.dart';
 
 /// 显示认证页面（改为内嵌 Stack 页面，而非对话框）
 Future<bool?> showAuthDialog(BuildContext context, {int initialTab = 0}) {
@@ -71,101 +73,90 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
       return _buildCupertinoPage(context, colorScheme, isDark);
     }
 
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: colorScheme.surface,
-        title: const Text('账号'),
+    // Android 系统状态栏颜色适配
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: colorScheme.surface,
+        systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
       ),
-      body: Stack(
-        children: [
-          // 背景装饰渐变（与对话框样式一致，改为全屏）
-          // 使用 IgnorePointer 确保不拦截触摸事件（修复 WSA 上点击无响应的问题）
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.topRight,
-                    radius: 1.5,
-                    colors: [
-                      colorScheme.primaryContainer.withOpacity(0.15),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.bottomLeft,
-                    radius: 1.5,
-                    colors: [
-                      colorScheme.secondaryContainer.withOpacity(0.12),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // 主内容
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Logo 和标题
-                  _buildHeader(colorScheme),
-                  const SizedBox(height: 24),
-                  // Tab 指示器
-                  _buildTabBar(colorScheme),
-                  const SizedBox(height: 16),
-                  // Tab 内容
-                  SizedBox(
-                    height: 480,
-                    child: TabBarView(
-                      controller: _tabController,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: [
-                        _LoginView(),
-                        _RegisterView(),
-                        _ForgotPasswordView(),
+      child: Scaffold(
+        backgroundColor: colorScheme.surface,
+        body: Stack(
+          children: [
+            // 背景装饰 - Material 3 Expressive 简洁单层淡色装饰
+            // 使用 IgnorePointer 确保不拦截触摸事件
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment.topRight,
+                      radius: 1.8,
+                      colors: [
+                        colorScheme.primaryContainer.withOpacity(0.12),
+                        Colors.transparent,
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // 桌面覆盖层下的返回按钮（避免依赖系统返回）
-                  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-                    Align(
-                      alignment: Alignment.center,
-                      child: TextButton.icon(
-                        onPressed: () {
-                          // 如果使用覆盖层，则关闭覆盖层；否则正常返回
-                          if (AuthOverlayService().isVisible) {
-                            AuthOverlayService().hide(false);
-                          } else {
-                            final nav = Navigator.of(context);
-                            if (nav.canPop()) {
-                              nav.pop(true);
-                            }
-                          }
-                        },
-                        icon: const Icon(Icons.check),
-                        label: const Text('完成'),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+
+            // 主内容
+            SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Logo 和标题
+                    _buildHeader(colorScheme),
+                    const SizedBox(height: 24),
+                    // Tab 指示器
+                    _buildTabBar(colorScheme),
+                    const SizedBox(height: 16),
+                    // Tab 内容
+                    SizedBox(
+                      height: 480,
+                      child: TabBarView(
+                        controller: _tabController,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          _LoginView(),
+                          _RegisterView(),
+                          _ForgotPasswordView(),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // 桌面覆盖层下的返回按钮（避免依赖系统返回）
+                    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+                      Align(
+                        alignment: Alignment.center,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            // 如果使用覆盖层，则关闭覆盖层；否则正常返回
+                            if (AuthOverlayService().isVisible) {
+                              AuthOverlayService().hide(false);
+                            } else {
+                              final nav = Navigator.of(context);
+                              if (nav.canPop()) {
+                                nav.pop(true);
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('完成'),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -246,52 +237,37 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   Widget _buildHeader(ColorScheme colorScheme) {
     return Column(
       children: [
-        // Logo with gradient - Material 3 style
+        // Logo - Material 3 Expressive style (纯色设计)
         Container(
-          width: 80,
-          height: 80,
+          width: 88,
+          height: 88,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                colorScheme.primary,
-                colorScheme.tertiary,
-              ],
-            ),
+            color: colorScheme.primary,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: colorScheme.primary.withOpacity(0.3),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
+                color: colorScheme.primary.withOpacity(0.25),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
           child: const Icon(
             Icons.music_note_rounded,
-            size: 42,
+            size: 44,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         
-        // Title with gradient
-        ShaderMask(
-          shaderCallback: (bounds) => LinearGradient(
-            colors: [
-              colorScheme.primary,
-              colorScheme.tertiary,
-            ],
-          ).createShader(bounds),
-          child: Text(
-            'Cyrene Music',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              fontSize: 32,
-              letterSpacing: -0.5,
-            ),
+        // Title - 纯色设计，更大字号
+        Text(
+          'Cyrene Music',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: colorScheme.onSurface,
+            fontSize: 34,
+            letterSpacing: -0.5,
           ),
         ),
         const SizedBox(height: 8),
@@ -300,7 +276,7 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             color: colorScheme.onSurfaceVariant,
             fontSize: 15,
-            letterSpacing: 0.1,
+            letterSpacing: 0.2,
           ),
         ),
       ],
@@ -308,60 +284,35 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   }
 
   Widget _buildTabBar(ColorScheme colorScheme) {
-    return Container(
-      height: 48,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(24), // 胶囊外形 - 高度的一半
+    // Material 3 Expressive - 标准下划线指示器样式
+    return TabBar(
+      controller: _tabController,
+      indicator: UnderlineTabIndicator(
+        borderSide: BorderSide(
+          color: colorScheme.primary,
+          width: 3,
+        ),
+        borderRadius: BorderRadius.circular(3),
       ),
-      padding: const EdgeInsets.all(4),
-      child: TabBar(
-        controller: _tabController,
-        indicator: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primary,
-              colorScheme.tertiary,
-            ],
-          ),
-          borderRadius: BorderRadius.circular(20), // 胶囊内圆角
-          boxShadow: [
-            BoxShadow(
-              color: colorScheme.primary.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        dividerColor: Colors.transparent,
-        labelColor: colorScheme.onPrimary,
-        unselectedLabelColor: colorScheme.onSurfaceVariant,
-        labelStyle: const TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 14,
-          letterSpacing: 0.1,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: 14,
-          letterSpacing: 0.1,
-        ),
-        tabs: const [
-          Tab(
-            height: 40,
-            child: Center(child: Text('登录')),
-          ),
-          Tab(
-            height: 40,
-            child: Center(child: Text('注册')),
-          ),
-          Tab(
-            height: 40,
-            child: Center(child: Text('找回密码')),
-          ),
-        ],
+      indicatorSize: TabBarIndicatorSize.label,
+      dividerColor: colorScheme.outlineVariant.withOpacity(0.5),
+      labelColor: colorScheme.primary,
+      unselectedLabelColor: colorScheme.onSurfaceVariant,
+      labelStyle: const TextStyle(
+        fontWeight: FontWeight.w700,
+        fontSize: 15,
+        letterSpacing: 0.1,
       ),
+      unselectedLabelStyle: const TextStyle(
+        fontWeight: FontWeight.w500,
+        fontSize: 15,
+        letterSpacing: 0.1,
+      ),
+      tabs: const [
+        Tab(text: '登录'),
+        Tab(text: '注册'),
+        Tab(text: '找回密码'),
+      ],
     );
   }
 }
@@ -474,6 +425,9 @@ class _LoginViewState extends State<_LoginView> {
       key: _formKey,
       child: ListView(
         children: [
+          // 顶部间距，避免与 Tab 指示器重叠
+          const SizedBox(height: 24),
+          
           // 账号输入框
           _buildTextField(
             controller: _accountController,
@@ -532,17 +486,24 @@ class _LoginViewState extends State<_LoginView> {
                 : () async {
                     setState(() {
                       _isLinuxDoLoading = true;
-                      _linuxDoLoadingText = '正在打开浏览器...';
+                      _linuxDoLoadingText = '正在打开授权页面...';
                     });
                     
-                    // 延迟更新提示文字，让用户知道浏览器已打开
-                    Future.delayed(const Duration(seconds: 2), () {
-                      if (mounted && _isLinuxDoLoading) {
-                        setState(() => _linuxDoLoadingText = '等待浏览器授权...');
-                      }
-                    });
+                    // 使用 WebView 方式进行登录
+                    final code = await showLinuxDoWebViewLogin(context);
                     
-                    final result = await AuthService().loginWithLinuxDo();
+                    if (!mounted) return;
+                    
+                    if (code == null) {
+                      // 用户取消或获取授权码失败
+                      setState(() => _isLinuxDoLoading = false);
+                      return;
+                    }
+                    
+                    // 获取到授权码，进行登录
+                    setState(() => _linuxDoLoadingText = '正在验证授权...');
+                    
+                    final result = await AuthService().loginWithLinuxDoCode(code);
                     
                     if (!mounted) return;
                     
@@ -884,13 +845,16 @@ class _RegisterViewState extends State<_RegisterView> {
       key: _formKey,
       child: ListView(
         children: [
-          // QQ 号输入
-          _buildTextField(
+          // 邮箱输入（带固定 @qq.com 后缀）
+          TextFormField(
             controller: _qqNumberController,
-            label: 'QQ 号',
-            icon: Icons.chat_bubble_rounded,
-            colorScheme: colorScheme,
             keyboardType: TextInputType.number,
+            style: TextStyle(
+              fontSize: 16,
+              letterSpacing: 0.15,
+              color: colorScheme.onSurface,
+            ),
+            cursorColor: colorScheme.primary,
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return '请输入 QQ 号';
@@ -903,31 +867,79 @@ class _RegisterViewState extends State<_RegisterView> {
               }
               return null;
             },
-          ),
-          
-          // 显示完整邮箱
-          if (_qqNumberController.text.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 16, top: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.mail_rounded,
-                    size: 16,
-                    color: colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '注册邮箱：${_getFullEmail()}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+            decoration: InputDecoration(
+              labelText: '邮箱',
+              labelStyle: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
+              floatingLabelStyle: TextStyle(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+              prefixIcon: Container(
+                margin: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.mail_rounded,
+                  color: colorScheme.onSecondaryContainer,
+                  size: 20,
+                ),
+              ),
+              // 固定 @qq.com 后缀
+              suffixIcon: Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Text(
+                  '@qq.com',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+              filled: true,
+              fillColor: colorScheme.surfaceContainerLow,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: colorScheme.outlineVariant,
+                  width: 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: colorScheme.primary,
+                  width: 2,
+                ),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: colorScheme.error,
+                  width: 1,
+                ),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: colorScheme.error,
+                  width: 2,
+                ),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
             ),
+          ),
           const SizedBox(height: 20),
 
           // 用户名
@@ -1388,7 +1400,7 @@ class _ForgotPasswordViewState extends State<_ForgotPasswordView> {
   }
 }
 
-// 通用组件：Material Design 3 渐变按钮
+// 通用组件：Material Design 3 Expressive 按钮（纯色设计）
 Widget _buildGradientButton({
   required String label,
   required bool isLoading,
@@ -1396,34 +1408,29 @@ Widget _buildGradientButton({
   required ColorScheme colorScheme,
   double? height,
 }) {
+  final isEnabled = onPressed != null;
+  
   return Container(
-    height: height ?? 52,
+    height: height ?? 54,
     decoration: BoxDecoration(
-      gradient: onPressed == null
-          ? null
-          : LinearGradient(
-              colors: [
-                colorScheme.primary,
-                colorScheme.tertiary,
-              ],
-            ),
-      borderRadius: BorderRadius.circular(12), // Material 3 标准按钮圆角
-      boxShadow: onPressed == null
-          ? null
-          : [
+      color: isEnabled ? colorScheme.primary : colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(20), // Expressive 更大圆角
+      boxShadow: isEnabled
+          ? [
               BoxShadow(
-                color: colorScheme.primary.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
+                color: colorScheme.primary.withOpacity(0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
               ),
-            ],
+            ]
+          : null,
     ),
     child: Material(
-      color: onPressed == null ? colorScheme.surfaceContainerHighest : Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(20),
         child: Center(
           child: isLoading
               ? const SizedBox(
@@ -1438,9 +1445,9 @@ Widget _buildGradientButton({
                   label,
                   style: TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 0.1,
-                    color: onPressed == null ? colorScheme.onSurface.withOpacity(0.5) : Colors.white,
+                    color: isEnabled ? Colors.white : colorScheme.onSurface.withOpacity(0.4),
                   ),
                 ),
         ),
@@ -1449,7 +1456,7 @@ Widget _buildGradientButton({
   );
 }
 
-// 通用组件：Material Design 3 风格的文本输入框
+// 通用组件：Material You 动态颜色输入框
 Widget _buildTextField({
   required TextEditingController controller,
   required String label,
@@ -1467,10 +1474,12 @@ Widget _buildTextField({
     keyboardType: keyboardType,
     validator: validator,
     onFieldSubmitted: onFieldSubmitted,
-    style: const TextStyle(
+    style: TextStyle(
       fontSize: 16,
       letterSpacing: 0.15,
+      color: colorScheme.onSurface,
     ),
+    cursorColor: colorScheme.primary,
     decoration: InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
@@ -1483,56 +1492,62 @@ Widget _buildTextField({
         fontWeight: FontWeight.w600,
         letterSpacing: 0.1,
       ),
+      // 前缀图标 - 使用 secondaryContainer 动态颜色
       prefixIcon: Container(
         margin: const EdgeInsets.all(10),
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primaryContainer.withOpacity(0.6),
-              colorScheme.tertiaryContainer.withOpacity(0.6),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(10),
+          color: colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(icon, color: colorScheme.primary, size: 20),
+        child: Icon(
+          icon, 
+          color: colorScheme.onSecondaryContainer, 
+          size: 20,
+        ),
       ),
       suffixIcon: suffixIcon,
+      // 填充色 - 使用 surfaceContainerLow 动态颜色
       filled: true,
-      fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+      fillColor: colorScheme.surfaceContainerLow,
+      // 边框样式 - 使用 outlineVariant 动态颜色
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12), // Material 3 标准圆角
+        borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: colorScheme.outline.withOpacity(0.3),
+          color: colorScheme.outlineVariant,
           width: 1,
         ),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color: colorScheme.primary,
           width: 2,
         ),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color: colorScheme.error,
           width: 1,
         ),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color: colorScheme.error,
           width: 2,
         ),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      errorStyle: TextStyle(
+        color: colorScheme.error,
+        fontSize: 12,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
     ),
   );
 }

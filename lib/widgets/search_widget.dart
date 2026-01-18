@@ -1477,6 +1477,198 @@ class _SearchWidgetState extends State<SearchWidget> {
     );
   }
 
+  /// Fluent UI 风格歌手结果
+  Widget _buildFluentArtistResults() {
+    final fluentTheme = fluent.FluentTheme.of(context);
+    final keyword = _searchService.currentKeyword;
+    
+    if (keyword.isEmpty) {
+      return _buildFluentEmptyState(
+        icon: fluent.FluentIcons.people,
+        title: '搜索歌手',
+        subtitle: '输入关键词后切换到"歌手"',
+      );
+    }
+
+    if (_artistLoading && _secondaryArtistId == null && _secondaryAlbumId == null) {
+      return const Center(child: fluent.ProgressRing());
+    }
+
+    if (_artistError != null && _secondaryArtistId == null && _secondaryAlbumId == null) {
+      return Center(
+        child: Text(
+          '搜索失败: $_artistError',
+          style: TextStyle(color: fluentTheme.resources.textFillColorSecondary),
+        ),
+      );
+    }
+
+    if (_artistResults.isEmpty && _secondaryArtistId == null && _secondaryAlbumId == null) {
+      return _buildFluentEmptyState(
+        icon: fluent.FluentIcons.people,
+        title: '没有找到相关歌手',
+        subtitle: '试试其他关键词吧',
+      );
+    }
+
+    if (_secondaryArtistId != null || _secondaryAlbumId != null) {
+      return const SizedBox.shrink();
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      itemCount: _artistResults.length,
+      itemBuilder: (context, index) => _buildFluentArtistTile(_artistResults[index]),
+    );
+  }
+
+  /// Fluent UI 风格歌手项（参考歌单卡片样式）
+  Widget _buildFluentArtistTile(NeteaseArtistBrief artist) {
+    final theme = fluent.FluentTheme.of(context);
+    final resources = theme.resources;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: fluent.Card(
+        borderRadius: BorderRadius.circular(12),
+        padding: EdgeInsets.zero,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            setState(() {
+              _secondaryArtistId = artist.id;
+              _secondaryArtistName = artist.name;
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 歌手头像
+                Hero(
+                  tag: 'fluent_search_artist_${artist.id}',
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(32),
+                    child: artist.picUrl.isEmpty
+                        ? Container(
+                            width: 64,
+                            height: 64,
+                            color: resources.controlAltFillColorSecondary,
+                            alignment: Alignment.center,
+                            child: Icon(
+                              fluent.FluentIcons.contact,
+                              color: resources.textFillColorTertiary,
+                              size: 28,
+                            ),
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: artist.picUrl,
+                            width: 64,
+                            height: 64,
+                            memCacheWidth: 128,
+                            memCacheHeight: 128,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Container(
+                              width: 64,
+                              height: 64,
+                              color: resources.controlAltFillColorSecondary,
+                              alignment: Alignment.center,
+                              child: const fluent.ProgressRing(strokeWidth: 2),
+                            ),
+                            errorWidget: (_, __, ___) => Container(
+                              width: 64,
+                              height: 64,
+                              color: resources.controlAltFillColorSecondary,
+                              alignment: Alignment.center,
+                              child: Icon(
+                                fluent.FluentIcons.contact,
+                                color: resources.textFillColorTertiary,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // 歌手名
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        artist.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '歌手',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: resources.textFillColorSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // 箭头
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(fluent.FluentIcons.chevron_right, size: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Fluent UI 风格空状态
+  Widget _buildFluentEmptyState({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final fluentTheme = fluent.FluentTheme.of(context);
+    final textColor = fluentTheme.resources.textFillColorPrimary;
+    final subtleColor = fluentTheme.resources.textFillColorSecondary;
+    
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48, color: subtleColor),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: subtleColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// iOS 风格搜索历史
   Widget _buildCupertinoSearchHistory(bool isDark) {
     final history = _searchService.searchHistory;
@@ -2101,7 +2293,7 @@ class _SearchWidgetState extends State<SearchWidget> {
       return Container(
         key: const ValueKey('artists_tab'),
         color: backgroundColor,
-        child: _buildArtistResults(),
+        child: _isFluent ? _buildFluentArtistResults() : _buildArtistResults(),
       );
     } else {
       // 分平台模式：根据当前音源支持的平台动态显示
@@ -2145,7 +2337,7 @@ class _SearchWidgetState extends State<SearchWidget> {
             return Container(
               key: const ValueKey('artists_tab'),
               color: backgroundColor,
-              child: _buildArtistResults(),
+              child: _isFluent ? _buildFluentArtistResults() : _buildArtistResults(),
             );
         }
         
@@ -2160,7 +2352,7 @@ class _SearchWidgetState extends State<SearchWidget> {
       return Container(
         key: const ValueKey('artists_tab'),
         color: backgroundColor,
-        child: _buildArtistResults(),
+        child: _isFluent ? _buildFluentArtistResults() : _buildArtistResults(),
       );
     }
   }
@@ -2272,65 +2464,96 @@ class _SearchWidgetState extends State<SearchWidget> {
 
   Widget _buildSingleTrackItem(Track track) {
     if (_isFluent) {
-      final placeholderColor = fluent.FluentTheme.of(context).resources?.controlAltFillColorSecondary ??
-          Colors.black.withOpacity(0.05);
+      final theme = fluent.FluentTheme.of(context);
+      final resources = theme.resources;
 
-      final leading = ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: CachedNetworkImage(
-          imageUrl: track.picUrl,
-          width: 50,
-          height: 50,
-          fit: BoxFit.cover,
-          placeholder: (context, url) => Container(
-            width: 50,
-            height: 50,
-            color: placeholderColor,
-            child: const Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: fluent.Card(
+          borderRadius: BorderRadius.circular(12),
+          padding: EdgeInsets.zero,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _playSingleTrack(track),
+            onLongPress: () => TrackActionMenu.show(
+              context: context,
+              track: track,
+              onPlay: () => _playSingleTrack(track),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 封面
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(
+                      imageUrl: track.picUrl,
+                      width: 64,
+                      height: 64,
+                      memCacheWidth: 128,
+                      memCacheHeight: 128,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(
+                        width: 64,
+                        height: 64,
+                        color: resources.controlAltFillColorSecondary,
+                        alignment: Alignment.center,
+                        child: const fluent.ProgressRing(strokeWidth: 2),
+                      ),
+                      errorWidget: (_, __, ___) => Container(
+                        width: 64,
+                        height: 64,
+                        color: resources.controlAltFillColorSecondary,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          fluent.FluentIcons.music_in_collection,
+                          color: resources.textFillColorTertiary,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  // 歌曲信息
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          track.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${track.artists} • ${track.album}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: resources.textFillColorSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // 操作按钮
+                  TrackMoreButton(
+                    track: track,
+                    onPlay: () => _playSingleTrack(track),
+                  ),
+                ],
               ),
             ),
           ),
-          errorWidget: (context, url, error) => Container(
-            width: 50,
-            height: 50,
-            color: placeholderColor,
-            child: Icon(
-              Icons.music_note,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
         ),
-      );
-
-      final tile = _buildAdaptiveListTile(
-        leading: leading,
-        title: Text(
-          track.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          '${track.artists} • ${track.album}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        trailing: TrackMoreButton(
-          track: track,
-          onPlay: () => _playSingleTrack(track),
-        ),
-        onPressed: () => _playSingleTrack(track),
-      );
-
-      return _wrapCard(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: EdgeInsets.zero,
-        child: tile,
       );
     }
 
@@ -2590,11 +2813,6 @@ class _SearchWidgetState extends State<SearchWidget> {
           ),
         );
 
-        if (_isFluent) {
-           // Keep Fluent matching standard if needed, or adapt slightly.
-           // For now, let's keep the Material Expressive as primary focus.
-        }
-
         return InkWell(
           onTap: () {
             setState(() {
@@ -2692,65 +2910,92 @@ class _SearchWidgetState extends State<SearchWidget> {
   /// 构建合并后的歌曲项
   Widget _buildMergedTrackItem(MergedTrack mergedTrack) {
     if (_isFluent) {
-      final placeholderColor = fluent.FluentTheme.of(context).resources?.controlAltFillColorSecondary ??
-          Colors.black.withOpacity(0.05);
+      final theme = fluent.FluentTheme.of(context);
+      final resources = theme.resources;
+      final bestTrack = mergedTrack.getBestTrack();
 
-      final leading = ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: CachedNetworkImage(
-          imageUrl: mergedTrack.picUrl,
-          width: 50,
-          height: 50,
-          fit: BoxFit.cover,
-          placeholder: (context, url) => Container(
-            width: 50,
-            height: 50,
-            color: placeholderColor,
-            child: const Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: fluent.Card(
+          borderRadius: BorderRadius.circular(12),
+          padding: EdgeInsets.zero,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _playMergedTrack(mergedTrack),
+            onLongPress: () => _showPlatformSelector(mergedTrack),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 封面
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(
+                      imageUrl: mergedTrack.picUrl,
+                      width: 64,
+                      height: 64,
+                      memCacheWidth: 128,
+                      memCacheHeight: 128,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(
+                        width: 64,
+                        height: 64,
+                        color: resources.controlAltFillColorSecondary,
+                        alignment: Alignment.center,
+                        child: const fluent.ProgressRing(strokeWidth: 2),
+                      ),
+                      errorWidget: (_, __, ___) => Container(
+                        width: 64,
+                        height: 64,
+                        color: resources.controlAltFillColorSecondary,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          fluent.FluentIcons.music_in_collection,
+                          color: resources.textFillColorTertiary,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  // 歌曲信息
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          mergedTrack.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${mergedTrack.artists} • ${mergedTrack.album}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: resources.textFillColorSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // 操作按钮
+                  TrackMoreButton(
+                    track: bestTrack,
+                    onPlay: () => _playMergedTrack(mergedTrack),
+                  ),
+                ],
               ),
             ),
           ),
-          errorWidget: (context, url, error) => Container(
-            width: 50,
-            height: 50,
-            color: placeholderColor,
-            child: Icon(
-              Icons.music_note,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      );
-
-      final bestTrack = mergedTrack.getBestTrack();
-      
-      return _wrapCard(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: EdgeInsets.zero,
-        child: _buildAdaptiveListTile(
-          leading: leading,
-          title: Text(
-            mergedTrack.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            '${mergedTrack.artists} • ${mergedTrack.album}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          trailing: TrackMoreButton(
-            track: bestTrack,
-            onPlay: () => _playMergedTrack(mergedTrack),
-          ),
-          onPressed: () => _playMergedTrack(mergedTrack),
-          onLongPress: () => _showPlatformSelector(mergedTrack),
         ),
       );
     }
